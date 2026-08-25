@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Legacy Vault — Create Vault</title>
+  <title>Legacy Vault: Create Vault</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
@@ -16,8 +16,8 @@
     <h1 class="page-title">Create a <span class="accent">Vault</span></h1>
     <p class="page-sub">
       Name your beneficiaries, set the silence threshold, and choose how much
-      releases first. The contract enforces these terms exactly as written —
-      review them carefully, they cannot be changed after creation except by you.
+      releases first. The contract enforces these terms exactly as written.
+      Review them carefully; they cannot be changed after creation except by you.
     </p>
 
     <div class="panel glow" style="max-width:760px">
@@ -35,7 +35,7 @@
 
         <div class="form-row" style="margin-top:26px">
           <div class="field">
-            <label>Guardian — can cancel a triggered release (optional)</label>
+            <label>Guardian (can cancel a triggered release, optional)</label>
             <input type="text" id="guardian" placeholder="0x… (empty = none)" />
           </div>
           <div class="field">
@@ -88,7 +88,7 @@
     const rowsEl = document.getElementById("benef-rows");
     const sumEl = document.getElementById("sum-indicator");
 
-    // Unit pickers as chip buttons — native <select> popups are unreliable
+    // Unit pickers as chip buttons: native <select> popups are unreliable
     // inside wallet dapp-browser WebViews, so we avoid them entirely.
     const unitState = { "interval-unit": "days", "dispute-unit": "weeks" };
 
@@ -170,7 +170,7 @@
       const ok = Math.abs(sum - 100) < 1e-9;
       sumEl.innerHTML = ok
         ? `<span class="sum-ok">✓ shares total ${trim(sum)}%</span>`
-        : `<span class="${sum > 100 ? "sum-bad" : ""}">${trim(sum)}% of 100% allocated ${sum > 100 ? "— over-committed" : ""}</span>`;
+        : `<span class="${sum > 100 ? "sum-bad" : ""}">${trim(sum)}% of 100% allocated${sum > 100 ? " (over-committed)" : ""}</span>`;
       sumEl.className = `sum-indicator ${ok ? "sum-ok" : "sum-bad"}`;
 
       const amt = parseFloat(document.getElementById("amount").value);
@@ -180,8 +180,8 @@
       const count = rowsEl.querySelectorAll(".benef-row").length;
 
       document.getElementById("summary").innerHTML =
-        `If you don't check in for <span class="num">${intervalSec ? fmtDurationLong(intervalSec) : "—"}</span>, ` +
-        `anyone can trigger the release. After a dispute window of <span class="num">${disputeSec ? fmtDurationLong(disputeSec) : "—"}</span>, ` +
+        `If you don't check in for <span class="num">${intervalSec ? fmtDurationLong(intervalSec) : "(not set)"}</span>, ` +
+        `anyone can trigger the release. After a dispute window of <span class="num">${disputeSec ? fmtDurationLong(disputeSec) : "(not set)"}</span>, ` +
         `your <b>${count} beneficiary${count === 1 ? "" : "ies"}</b> can claim <span class="num">${t1}%</span> of the vault. ` +
         `After another full interval of silence, the remaining <span class="num">${100 - t1}%</span> unlocks. A check-in from you at any point before that revives the vault.` +
         (amt > 0 ? ` Deposit: <b><span class="num">${amt}</span> BOT</b>.` : "");

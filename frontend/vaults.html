@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Legacy Vault — My Vaults</title>
+  <title>Legacy Vault: My Vaults</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
@@ -64,7 +64,7 @@
           </div>
           <div>
             <div class="countdown-label" id="cd-label-${id}">check-in due in</div>
-            <div class="countdown big-countdown" id="cd-${id}">—</div>
+            <div class="countdown big-countdown" id="cd-${id}"></div>
           </div>
           <div class="card-actions">
             <button class="btn primary small" data-checkin="${id}">Check In</button>
@@ -91,8 +91,8 @@
         grid.innerHTML = "";
         empty.hidden = false;
         empty.querySelector("p").textContent = isSupportedChain(state.chainId)
-          ? "Couldn't read from the chain — check your connection and retry."
-          : "Wrong network — switch your wallet to BOT Chain to load your vaults.";
+          ? "Couldn't read from the chain. Check your connection and retry."
+          : "Wrong network. Switch your wallet to BOT Chain to load your vaults.";
         return;
       }
       if (gen !== renderGen) return;
@@ -125,19 +125,43 @@
       const label = document.getElementById(`cd-label-${id}`);
       if (!el) return;
       ticker(el, (now) => {
-        const deadline = BigInt(v.lastCheckIn) + BigInt(v.checkInInterval);
-        const remain = Number(deadline - BigInt(now));
-        if (Number(v.status) === 0 && remain > 0) {
-          label.textContent = "check-in due in";
-          el.textContent = fmtDuration(remain);
-          el.className = `countdown ${remain < 86400 ? "warn" : ""}`;
-        } else if (remain <= 0 && Number(v.status) === 0) {
+        const s = Number(v.status);
+        if (s === 0) {
+          const remain = Number(BigInt(v.lastCheckIn) + BigInt(v.checkInInterval) - BigInt(now));
+          if (remain > 0) {
+            label.textContent = "check-in due in";
+            el.textContent = fmtDuration(remain);
+            el.className = `countdown ${remain < 86400 ? "warn" : ""}`;
+          } else {
             label.textContent = "deadline passed";
             el.textContent = "release can be triggered";
             el.className = "countdown overdue";
+          }
+        } else if (s === 1) {
+          const remain = Number(BigInt(v.triggeredAt) + BigInt(v.disputeWindow) - BigInt(now));
+          if (remain > 0) {
+            label.textContent = "dispute window closes in";
+            el.textContent = fmtDuration(remain);
+            el.className = "countdown warn";
+          } else {
+            label.textContent = "";
+            el.textContent = "tranche 1 can be claimed";
+            el.className = "countdown";
+          }
+        } else if (s === 2) {
+          const remain = Number(BigInt(v.tranche1ClaimedAt) + BigInt(v.checkInInterval) - BigInt(now));
+          if (remain > 0) {
+            label.textContent = "final release unlocks in";
+            el.textContent = fmtDuration(remain);
+            el.className = "countdown";
+          } else {
+            label.textContent = "";
+            el.textContent = "final share claimable";
+            el.className = "countdown";
+          }
         } else {
-          label.textContent = "liveness";
-          el.textContent = statusName(v.status);
+          label.textContent = "status";
+          el.textContent = statusName(s);
           el.className = "countdown";
         }
       });

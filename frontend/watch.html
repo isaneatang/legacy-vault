@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Legacy Vault — Public Watch</title>
+  <title>Legacy Vault: Public Watch</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
@@ -15,7 +15,7 @@
   <main class="page">
     <h1 class="page-title">Vault <span class="accent" id="title-id">Watch</span></h1>
     <p class="page-sub">
-      Read-only public view — no wallet required. Every number here comes
+      Read-only public view, no wallet required. Every number here comes
       straight from the chain.
     </p>
 
@@ -29,12 +29,12 @@
         <h3>Live state</h3>
         <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:16px;">
           <div>
-            <div class="balance-line"><span id="balance">—</span> <small>BOT</small></div>
-            <span class="chip st-active" id="status-chip">—</span>
+            <div class="balance-line"><span id="balance"></span> <small>BOT</small></div>
+            <span class="chip st-active" id="status-chip"></span>
           </div>
           <div style="text-align:right">
-            <div class="countdown-label" id="cd-label">—</div>
-            <div class="countdown big-countdown" id="countdown">—</div>
+            <div class="countdown-label" id="cd-label"></div>
+            <div class="countdown big-countdown" id="countdown"></div>
           </div>
         </div>
       </div>
@@ -42,11 +42,11 @@
       <div class="panel">
         <h3>Terms</h3>
         <dl class="kv">
-          <dt>Vault</dt><dd id="kv-id">—</dd>
-          <dt>Owner</dt><dd id="kv-owner">—</dd>
-          <dt>Check-in interval</dt><dd id="kv-interval">—</dd>
-          <dt>Last check-in</dt><dd id="kv-lastcheckin">—</dd>
-          <dt>Tranche 1</dt><dd id="kv-t1">—</dd>
+          <dt>Vault</dt><dd id="kv-id"></dd>
+          <dt>Owner</dt><dd id="kv-owner"></dd>
+          <dt>Check-in interval</dt><dd id="kv-interval"></dd>
+          <dt>Last check-in</dt><dd id="kv-lastcheckin"></dd>
+          <dt>Tranche 1</dt><dd id="kv-t1"></dd>
         </dl>
       </div>
     </div>
@@ -97,7 +97,7 @@
       }
       const st = Number(v.status);
 
-      document.getElementById("kv-owner").textContent = v.owner === ethers.ZeroAddress ? "—" : v.owner;
+      document.getElementById("kv-owner").textContent = v.owner === ethers.ZeroAddress ? "" : v.owner;
       document.getElementById("kv-interval").textContent = fmtDurationLong(Number(v.checkInInterval));
       document.getElementById("kv-lastcheckin").textContent = fmtTimestamp(v.lastCheckIn);
       document.getElementById("kv-t1").textContent = `${Number(v.tranche1Percent)}%`;

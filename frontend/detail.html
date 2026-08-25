@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Legacy Vault — Vault Detail</title>
+  <title>Legacy Vault: Vault Detail</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
@@ -21,12 +21,12 @@
         <h3>State</h3>
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
           <div>
-            <div class="balance-line"><span id="balance">—</span> <small>BOT</small></div>
-            <span class="chip st-active" id="status-chip">—</span>
+            <div class="balance-line"><span id="balance"></span> <small>BOT</small></div>
+            <span class="chip st-active" id="status-chip"></span>
           </div>
           <div style="text-align:right">
-            <div class="countdown-label" id="cd-label">—</div>
-            <div class="countdown big-countdown" id="countdown">—</div>
+            <div class="countdown-label" id="cd-label"></div>
+            <div class="countdown big-countdown" id="countdown"></div>
           </div>
         </div>
         <div style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;" id="action-row"></div>
@@ -36,13 +36,13 @@
       <div class="panel">
         <h3>Terms</h3>
         <dl class="kv">
-          <dt>Owner</dt><dd id="kv-owner">—</dd>
-          <dt>Guardian</dt><dd id="kv-guardian">—</dd>
-          <dt>Check-in interval</dt><dd id="kv-interval">—</dd>
-          <dt>Last check-in</dt><dd id="kv-lastcheckin">—</dd>
-          <dt>Dispute window</dt><dd id="kv-dispute">—</dd>
-          <dt>Tranche 1</dt><dd id="kv-t1">—</dd>
-          <dt>Final release delay</dt><dd id="kv-finaldelay">—</dd>
+          <dt>Owner</dt><dd id="kv-owner"></dd>
+          <dt>Guardian</dt><dd id="kv-guardian"></dd>
+          <dt>Check-in interval</dt><dd id="kv-interval"></dd>
+          <dt>Last check-in</dt><dd id="kv-lastcheckin"></dd>
+          <dt>Dispute window</dt><dd id="kv-dispute"></dd>
+          <dt>Tranche 1</dt><dd id="kv-t1"></dd>
+          <dt>Final release delay</dt><dd id="kv-finaldelay"></dd>
         </dl>
       </div>
     </div>
@@ -130,15 +130,15 @@
       const st = Number(v.status);
 
       document.getElementById("owner-line").innerHTML =
-        `Owned by <b>${v.owner === ethers.ZeroAddress ? "—" : v.owner}</b>` +
-        (state.address && isOwner() ? " — that's you." : "");
+        `Owned by <b>${v.owner === ethers.ZeroAddress ? "" : v.owner}</b>` +
+        (state.address && isOwner() ? " (that's you)" : "");
 
       document.getElementById("balance").textContent = fmtAmt(v.balance);
       const chip = document.getElementById("status-chip");
       chip.textContent = statusName(st);
       chip.className = `chip ${chipClass(st)}${st === 1 ? " st-danger" : ""}`;
 
-      document.getElementById("kv-owner").textContent = v.owner === ethers.ZeroAddress ? "—" : shortAddr(v.owner, 6);
+      document.getElementById("kv-owner").textContent = v.owner === ethers.ZeroAddress ? "" : shortAddr(v.owner, 6);
       const gEl = document.getElementById("kv-guardian");
       if (v.guardian === ethers.ZeroAddress) { gEl.textContent = "none"; }
       else {
@@ -346,14 +346,51 @@
       ];
       const items = [];
 
+      // Public RPCs often cap or disable eth_getLogs over huge ranges.
+      // Strategy: try the full range once per event; on failure, scan recent
+      // history in bounded chunks instead of silently showing nothing.
+      let provider;
+      try {
+        provider = c.provider;
+      } catch {}
+
+      async function queryEvent(name) {
+        const filter = c.filters[name](vaultId);
+        try {
+          return await c.queryFilter(filter, 0, "latest");
+        } catch {}
+        if (!provider?.getBlockNumber) return [];
+        let latest;
+        try {
+          latest = await provider.getBlockNumber();
+        } catch {
+          return [];
+        }
+        const CHUNK = 5000;
+        const SPAN = 150000; // ~last 150k blocks should cover any realistic vault life
+        const from = Math.max(0, latest - SPAN);
+        const out = [];
+        for (let start = latest; start >= from && out.length < 200; start -= CHUNK) {
+          const end = Math.max(from, start - CHUNK + 1);
+          try {
+            out.push(...(await c.queryFilter(filter, end, start)));
+          } catch {} // chunk unsupported; keep going
+          if (gen !== undefined && gen !== loadGen) break;
+        }
+        return out;
+      }
+
+      let anyQueryWorked = false;
       for (const name of evs) {
         try {
-          const logs = await c.queryFilter(c.filters[name](vaultId), 0, "latest");
+          const logs = await queryEvent(name);
+          if (logs.length) anyQueryWorked = true;
           for (const log of logs) {
             const p = c.interface.parseLog(log);
             items.push({ name, args: p.args, block: log.blockNumber });
           }
         } catch {}
+        if (gen !== undefined && gen !== loadGen) return;
       }
 
       // timestamp resolution (best-effort)
@@ -371,7 +408,11 @@
       const feed = document.getElementById("feed");
       feed.innerHTML = "";
       if (!items.length) {
-        feed.innerHTML = `<li><span class="what" style="color:var(--ash-dim)">No recorded activity yet.</span></li>`;
+        feed.innerHTML = `<li><span class="what" style="color:var(--ash-dim)">${
+          anyQueryWorked
+            ? "No recorded activity yet."
+            : "Activity unavailable from this RPC right now."
+        }</span></li>`;
         return;
       }
       for (const it of items) {
@@ -383,10 +424,10 @@
       const { name, args, ts } = it;
       const li = document.createElement("li");
       let what = name;
-      if (name === "CheckedIn") what = `<b>${shortAddr(args.owner)}</b> checked in — deadline reset.`;
+      if (name === "CheckedIn") what = `<b>${shortAddr(args.owner)}</b> checked in. Deadline reset.`;
       else if (name === "Deposited") what = `<b>${shortAddr(args.owner)}</b> deposited <b>${fmtAmt(args.amount)} BOT</b>.`;
       else if (name === "VaultCreated") what = `Vault created by <b>${shortAddr(args.owner)}</b> with <b>${fmtAmt(args.amount)} BOT</b>.`;
-      else if (name === "ReleaseTriggered") what = `Release triggered — check-in deadline passed.`;
+      else if (name === "ReleaseTriggered") what = `Release triggered. The check-in deadline had passed.`;
       else if (name === "ReleaseCancelled") what = `<b>${shortAddr(args.by)}</b> cancelled the triggered release.`;
       else if (name === "Tranche1Claimed") what = `<b>${shortAddr(args.beneficiary)}</b> claimed tranche 1: <b>${fmtAmt(args.amount)} BOT</b>.`;
       else if (name === "FinalClaimed") what = `<b>${shortAddr(args.beneficiary)}</b> claimed their final share: <b>${fmtAmt(args.amount)} BOT</b>.`;

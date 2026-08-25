@@ -118,6 +118,6 @@ export function humanTime(sec) {
 
 /** Timestamp (sec) → local datetime string. */
 export function fmtTimestamp(ts) {
-  if (!ts) return "—";
+  if (!ts) return "unknown time";
   return new Date(Number(ts) * 1000).toLocaleString();
 }

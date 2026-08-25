@@ -37,7 +37,7 @@ export function renderHeader() {
   if (footer && !footer.dataset.done) {
     footer.dataset.done = "1";
     footer.innerHTML = `
-      <span>Legacy Vault — a dead man's switch for BOT Chain. Immutable by design.</span>
+      <span>Legacy Vault: a dead man's switch for BOT Chain. Immutable by design.</span>
       <span><a href="watch.html">public vault watch ↗</a></span>
     `;
   }

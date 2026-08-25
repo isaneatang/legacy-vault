@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Legacy Vault — Claimable Assets</title>
+  <title>Legacy Vault: Claimable Assets</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
@@ -15,7 +15,7 @@
   <main class="page">
     <h1 class="page-title">Claimable <span class="accent">Assets</span></h1>
     <p class="page-sub">
-      Every vault where this wallet is named as a beneficiary — what you're
+      Every vault where this wallet is named as a beneficiary: what you're
       owed, and exactly when it unlocks.
     </p>
 
@@ -68,8 +68,8 @@
         grid.innerHTML = "";
         empty.hidden = false;
         document.getElementById("empty-msg").textContent = isSupportedChain(state.chainId)
-          ? "Couldn't read from the chain — check your connection and retry."
-          : "Wrong network — switch your wallet to BOT Chain to load your claims.";
+          ? "Couldn't read from the chain. Check your connection and retry."
+          : "Wrong network. Switch your wallet to BOT Chain to load your claims.";
         return;
       }
 
@@ -119,25 +119,25 @@
         const dueAt = Number(BigInt(v.lastCheckIn) + BigInt(v.checkInInterval));
         const overdue = Date.now() / 1000 >= dueAt;
         if (overdue) {
-          phase = "The owner missed their check-in. Trigger the release to start your claim — after the dispute window closes, you can claim your share.";
+          phase = "The owner missed their check-in. Trigger the release to start your claim. After the dispute window closes, you can claim your share.";
           action = `<button class="btn primary wide" data-trigger="${id}">Trigger Release</button>`;
         } else {
           phase = `Owner is active. If they miss their check-in after ${new Date(dueAt * 1000).toLocaleString()}, you'll be able to trigger the release and start claiming.`;
         }
       } else if (st === 1) {
-        action = claim.canClaimT1
-          ? `<button class="btn primary wide" data-claim-t1="${id}">Claim Tranche 1 — est. ${fmtAmt(claim.estimatedT1)} BOT</button>`
-          : `<p style="color:var(--gold); margin:0">Dispute window open — tranche 1 unlocks when it closes.</p>`;
+          action = claim.canClaimT1
+            ? `<button class="btn primary wide" data-claim-t1="${id}">Claim Tranche 1 (est. ${fmtAmt(claim.estimatedT1)} BOT)</button>`
+            : `<p style="color:var(--gold); margin:0">Dispute window open. Tranche 1 unlocks when it closes.</p>`;
       } else if (st === 2) {
         if (claim.canClaimT1) {
-          action += `<button class="btn primary wide" data-claim-t1="${id}" style="margin-bottom:8px">Claim Tranche 1 — est. ${fmtAmt(claim.estimatedT1)} BOT</button>`;
+          action += `<button class="btn primary wide" data-claim-t1="${id}" style="margin-bottom:8px">Claim Tranche 1 (est. ${fmtAmt(claim.estimatedT1)} BOT)</button>`;
         }
         action += claim.canClaimFinal
-          ? `<button class="btn primary wide" data-claim-final="${id}">Claim Final Share — est. ${fmtAmt(claim.estimatedFinal)} BOT</button>`
+          ? `<button class="btn primary wide" data-claim-final="${id}">Claim Final Share (est. ${fmtAmt(claim.estimatedFinal)} BOT)</button>`
           : `<p style="color:var(--ash); margin:6px 0 0">Final share unlocks after one more full check-in interval of owner silence.</p>`;
       } else {
         action = claim.canClaimFinal
-          ? `<button class="btn primary wide" data-claim-final="${id}">Claim Final Share — est. ${fmtAmt(claim.estimatedFinal)} BOT</button>`
+          ? `<button class="btn primary wide" data-claim-final="${id}">Claim Final Share (est. ${fmtAmt(claim.estimatedFinal)} BOT)</button>`
           : `<p style="color:var(--ash-dim); margin:0">This vault is fully settled.</p>`;
       }
 
@@ -171,7 +171,7 @@
         if (st === 0) {
           const remain = Number(BigInt(v.lastCheckIn) + BigInt(v.checkInInterval) - BigInt(now));
           label.textContent = "time until release can be triggered";
-          el.textContent = remain > 0 ? fmtDuration(remain) : "ready — you can trigger now";
+          el.textContent = remain > 0 ? fmtDuration(remain) : "ready to trigger";
           el.className = "countdown";
         } else if (st === 1) {
           const remain = Number(BigInt(v.triggeredAt) + BigInt(v.disputeWindow) - BigInt(now));
@@ -186,7 +186,7 @@
           else { label.textContent = ""; el.textContent = "You can claim your final share now"; el.className = "countdown"; }
         } else {
           label.textContent = "vault";
-          el.textContent = claim.canClaimFinal ? "settled — claim your share" : "fully released";
+          el.textContent = claim.canClaimFinal ? "settled, claim your share" : "fully released";
           el.className = "countdown";
         }
       });

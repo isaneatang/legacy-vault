@@ -142,7 +142,7 @@ export function vaultAddress() {
 
 export function contractFor(signerOrProvider) {
   const addr = vaultAddress();
-  if (!addr || /^0x0+$/.test(addr)) throw new Error("Vault address not configured — edit frontend/js/config.js");
+  if (!addr || /^0x0+$/.test(addr)) throw new Error("Vault address not configured. Edit frontend/js/config.js");
   return new ethers.Contract(addr, LV_ABI, signerOrProvider);
 }
 
@@ -223,7 +223,7 @@ let wcConnecting = false;
 async function connectWalletConnect() {
   const projectId = CFG.WC_PROJECT_ID;
   if (!projectId) {
-    toast("WalletConnect is disabled — add WC_PROJECT_ID in js/config.js.", true);
+      toast("WalletConnect is disabled. Add WC_PROJECT_ID in js/config.js.", true);
     return;
   }
   if (wcConnecting) return;
@@ -520,7 +520,7 @@ export function openConnectModal() {
 
       <span class="modal-label">On this device</span>
       <div class="wallet-list">${installedRows}</div>
-      ${inApp ? `<p class="modal-note ok">You're browsing inside a wallet app — use an option above.</p>` : ""}
+      ${inApp ? `<p class="modal-note ok">You're browsing inside a wallet app. Use an option above.</p>` : ""}
 
       <div class="modal-section">
         <span class="modal-label">Any other wallet</span>
@@ -532,7 +532,7 @@ export function openConnectModal() {
         <p class="modal-note">${
           CFG.WC_PROJECT_ID
             ? "Scan the QR with any mobile wallet, or continue in your wallet app."
-            : "Currently disabled — add a free WC_PROJECT_ID from cloud.reown.com in js/config.js."
+            : "Currently disabled. Add a free WC_PROJECT_ID from cloud.reown.com in js/config.js."
         }</p>
       </div>
 
@@ -548,7 +548,7 @@ export function openConnectModal() {
             )
             .join("")}
         </div>
-        <p class="modal-note">Opens this page inside the wallet's own browser. Come back here once you're in — your wallets will be listed above.</p>
+        <p class="modal-note">Opens this page inside the wallet's own browser. Once you're in, your wallet will be listed under "On this device".</p>
       </div>
       <p class="modal-note">
         By connecting you agree that all actions are final and on-chain.
@@ -673,7 +673,7 @@ function openAccountMenu(zone, rerender) {
       menu.querySelector('[data-act="copy"]').textContent = "Copied ✓";
       setTimeout(rerender, 900);
     } catch {
-      toast("Copy failed — select it manually.", true);
+      toast("Copy failed. Select it manually.", true);
     }
   });
   menu.querySelector('[data-act="disconnect"]').addEventListener("click", () => {
@@ -708,11 +708,16 @@ export function explorerLink(hashOrAddr, kind = "address") {
   return `${base.replace(/\/$/, "")}/${kind}/${hashOrAddr}`;
 }
 
-/* Live countdown ticker: fn(nowSeconds) updates DOM each second. */
+/* Live countdown ticker: fn(nowSeconds) updates DOM each second.
+   renderFn failures are contained so a bad read never freezes the timer. */
 export function ticker(el, renderFn) {
   const tick = () => {
     if (!el.isConnected) return clearInterval(handle);
-    renderFn(Math.floor(Date.now() / 1000));
+    try {
+      renderFn(Math.floor(Date.now() / 1000));
+    } catch (err) {
+      console.warn("ticker error:", err);
+    }
   };
   const handle = setInterval(tick, 1000);
   tick();
