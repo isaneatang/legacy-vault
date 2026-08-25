@@ -14,10 +14,11 @@ window.LV_CONFIG = {
     // "677": "0x...",   // BOT Chain Mainnet
   },
 
-  // Optional: WalletConnect/Reown relay project id (free at https://cloud.reown.com).
-  // When set, a "WalletConnect" option appears in the connect modal (QR + any
-  // mobile wallet, even where deep links fail). Leave empty to disable.
-  WC_PROJECT_ID: "caeeec4110f639be2b71ce491d23ba98",
+  // WalletConnect/Reown relay project id. Injected at BUILD TIME from the
+  // environment: set WC_PROJECT_ID in Vercel env vars, or in .env locally and
+  // run `node scripts/gen-config.js`. The generated frontend/js/env.js
+  // overrides this empty default.
+  WC_PROJECT_ID: "",
 
   CHAINS: {
     "31337": { name: "Hardhat Local", explorer: "" },

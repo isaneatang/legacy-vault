@@ -17,6 +17,12 @@ import {
 
 const CFG = window.LV_CONFIG;
 
+/** WalletConnect project id: build-time env override (js/env.js) wins over
+ *  the committed default in js/config.js. */
+function wcProjectId() {
+  return CFG.WC_PROJECT_ID || window.LV_ENV?.WC_PROJECT_ID || "";
+}
+
 /* ------------------------------------------------------------------ */
 /* State                                                               */
 /* ------------------------------------------------------------------ */
@@ -221,7 +227,7 @@ const WC_ICON = `<svg width="26" height="26" viewBox="0 0 32 32" fill="none"><re
 let wcConnecting = false;
 
 async function connectWalletConnect() {
-  const projectId = CFG.WC_PROJECT_ID;
+  const projectId = wcProjectId();
   if (!projectId) {
       toast("WalletConnect is disabled. Add WC_PROJECT_ID in js/config.js.", true);
     return;
@@ -274,7 +280,7 @@ async function connectWalletConnect() {
  *  before anything else so reloads keep them logged in. */
 async function resumeWalletConnect() {
   if (localStorage.getItem(LS_WALLET) !== "wc") return false;
-  const projectId = CFG.WC_PROJECT_ID;
+  const projectId = wcProjectId();
   if (!projectId) return false;
   try {
     const mod = await import("https://esm.sh/@walletconnect/ethereum-provider@2.18.0");
@@ -530,9 +536,9 @@ export function openConnectModal() {
           </button>
         </div>
         <p class="modal-note">${
-          CFG.WC_PROJECT_ID
+          wcProjectId()
             ? "Scan the QR with any mobile wallet, or continue in your wallet app."
-            : "Currently disabled. Add a free WC_PROJECT_ID from cloud.reown.com in js/config.js."
+            : "Currently disabled. Add a free WC_PROJECT_ID from cloud.reown.com."
         }</p>
       </div>
 
