@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/theme.css?v=9" />
+  <link rel="stylesheet" href="css/theme.css?v=10" />
 </head>
 <body>
   <header class="site-header" id="site-header"></header>
@@ -81,13 +81,13 @@
     <div class="footer-note"></div>
   </main>
 
-  <script src="js/config.js?v=9"></script>
-  <script src="js/env.js?v=9"></script>
+  <script src="js/config.js?v=10"></script>
+  <script src="js/env.js?v=10"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
   <script type="module">
-    import { initWallet, wireHeader, state, signerContract, ensureAllowance, sendTx, toast, cleanErr, UNIT_SECONDS } from "./js/app.js?v=9";
-    import { renderHeader } from "./js/layout.js?v=9";
-    import { fmtDurationLong } from "./js/helpers.js?v=9";
+    import { initWallet, wireHeader, state, signerContract, ensureAllowance, sendTx, toast, cleanErr, UNIT_SECONDS, onWalletChange } from "./js/app.js?v=10";
+    import { renderHeader } from "./js/layout.js?v=10";
+    import { fmtDurationLong } from "./js/helpers.js?v=10";
 
     renderHeader();
     wireHeader("create");
@@ -95,40 +95,51 @@
     const rowsEl = document.getElementById("benef-rows");
     const sumEl = document.getElementById("sum-indicator");
 
-    // Asset picker: native BOT plus every token configured in config.js.
+    // Asset picker: native BOT plus the current chain's configured tokens.
     // (Token vaults need one extra approve tx before createVault.)
-    const ASSETS = [
-      { key: ethers.ZeroAddress, label: "BOT", native: true, decimals: 18 },
-      ...Object.entries(window.LV_CONFIG.TOKENS ?? {}).map(([addr, t]) => ({
-        key: addr.toLowerCase(),
-        label: t.symbol,
-        native: false,
-        decimals: Number(t.decimals),
-      })),
-    ];
-    let asset = ASSETS[0];
-
     const assetPicker = document.getElementById("asset-picker");
-    for (const a of ASSETS) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "unit-btn" + (a === asset ? " active" : "");
-      btn.textContent = a.label;
-      btn.addEventListener("click", () => {
-        asset = a;
-        document.getElementById("amount-label").textContent =
-          `Deposit amount (${a.label} locked in the vault)`;
-        assetPicker.querySelectorAll(".unit-btn").forEach((b) => b.classList.toggle("active", b === btn));
-        updateSummary();
-      });
-      assetPicker.appendChild(btn);
+    let asset = null;
+
+    function renderAssetPicker() {
+      const chainId = String(state.chainId ?? "");
+      const ASSETS = [
+        { key: ethers.ZeroAddress, label: "BOT", native: true, decimals: 18 },
+        ...Object.entries(window.LV_CONFIG.TOKENS?.[chainId] ?? {}).map(([addr, t]) => ({
+          key: addr.toLowerCase(),
+          label: t.symbol,
+          native: false,
+          decimals: Number(t.decimals),
+        })),
+      ];
+      // Keep the selection if it still exists on this chain; else reset to native.
+      asset = ASSETS.find((a) => a.key === asset?.key && a.native === asset.native) ?? ASSETS[0];
+
+      assetPicker.innerHTML = "";
+      for (const a of ASSETS) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "unit-btn" + (a === asset ? " active" : "");
+        btn.textContent = a.label;
+        btn.addEventListener("click", () => {
+          asset = a;
+          document.getElementById("amount-label").textContent =
+            `Deposit amount (${a.label} locked in the vault)`;
+          assetPicker.querySelectorAll(".unit-btn").forEach((b) => b.classList.toggle("active", b === btn));
+          updateSummary();
+        });
+        assetPicker.appendChild(btn);
+      }
+      if (ASSETS.length === 1) {
+        const hint = document.createElement("span");
+        hint.style.cssText = "color:var(--ash-dim);font-size:12px;align-self:center;margin-left:6px";
+        hint.textContent = "connect your wallet to see available assets";
+        assetPicker.appendChild(hint);
+      }
+      document.getElementById("amount-label").textContent =
+        `Deposit amount (${asset.label} locked in the vault)`;
+      updateSummary();
     }
-    if (ASSETS.length === 1) {
-      const hint = document.createElement("span");
-      hint.style.cssText = "color:var(--ash-dim);font-size:12px;align-self:center;margin-left:6px";
-      hint.textContent = "add tokens in js/config.js to offer more";
-      assetPicker.appendChild(hint);
-    }
+    onWalletChange(renderAssetPicker);
 
     // Unit pickers as chip buttons: native <select> popups are unreliable
     // inside wallet dapp-browser WebViews, so we avoid them entirely.

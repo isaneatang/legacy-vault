@@ -28,10 +28,14 @@ window.LV_CONFIG = {
 
   TOKEN_SYMBOL: "BOT",
 
-  // ERC-20 assets a vault can be denominated in (e.g. USDT). Keys must be
-  // lowercase addresses. Symbol/decimals verified on-chain (eth_call).
+  // ERC-20 assets a vault can be denominated in, keyed by chainId
+  // (lowercase addresses). Symbol/decimals verified on-chain (eth_call).
   TOKENS: {
-    "0x75edc9335175fc0552d51d48439f229c10420fe3": { symbol: "USDT", decimals: 6 }, // BOT Chain Testnet
-    "0xababc7ddc03e501d190c676bf3d92ef0e6e87a3c": { symbol: "USDT", decimals: 6 }, // BOT Chain Mainnet
+    "968": {
+      "0x75edc9335175fc0552d51d48439f229c10420fe3": { symbol: "USDT", decimals: 6 }, // BOT Chain Testnet
+    },
+    "677": {
+      "0xababc7ddc03e501d190c676bf3d92ef0e6e87a3c": { symbol: "USDT", decimals: 6 }, // BOT Chain Mainnet
+    },
   },
 };

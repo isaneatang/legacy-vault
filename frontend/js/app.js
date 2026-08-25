@@ -213,11 +213,14 @@ export async function assetMeta(tokenAddress) {
   if (cached) return cached;
 
   let meta = null;
-  for (const [key, t] of Object.entries(CFG.TOKENS ?? {})) {
-    if (key.toLowerCase() === addr && t?.symbol && t?.decimals != null) {
-      meta = { address: key.toLowerCase(), native: false, symbol: t.symbol, decimals: Number(t.decimals) };
-      break;
+  for (const chainTokens of Object.values(CFG.TOKENS ?? {})) {
+    for (const [key, t] of Object.entries(chainTokens ?? {})) {
+      if (key.toLowerCase() === addr && t?.symbol && t?.decimals != null) {
+        meta = { address: key.toLowerCase(), native: false, symbol: t.symbol, decimals: Number(t.decimals) };
+        break;
+      }
     }
+    if (meta) break;
   }
   if (!meta) {
     try {
