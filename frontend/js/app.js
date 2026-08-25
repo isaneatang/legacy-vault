@@ -239,10 +239,13 @@ export async function ensureAllowance(signer, tokenMeta, spender, amountWei) {
   if (!tokenMeta.native) {
     const token = new ethers.Contract(tokenMeta.address, ERC20_ABI, signer);
     const owner = await signer.getAddress();
-    const current = await token.allowance(owner, spender);
-    if (current < amountWei) {
-      await sendTx(`${tokenMeta.symbol} approval`, token.approve(spender, amountWei));
-    }
+    // Skip approve only when we can positively confirm enough allowance;
+    // any read failure falls through to an explicit (visible) approval.
+    try {
+      const current = await token.allowance(owner, spender);
+      if (current >= amountWei) return;
+    } catch {}
+    await sendTx(`${tokenMeta.symbol} approval`, token.approve(spender, amountWei));
   }
 }
 
