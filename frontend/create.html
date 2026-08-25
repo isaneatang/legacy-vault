@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/theme.css?v=11" />
+  <link rel="stylesheet" href="css/theme.css?v=12" />
 </head>
 <body>
   <header class="site-header" id="site-header"></header>
@@ -81,13 +81,13 @@
     <div class="footer-note"></div>
   </main>
 
-  <script src="js/config.js?v=11"></script>
-  <script src="js/env.js?v=11"></script>
+  <script src="js/config.js?v=12"></script>
+  <script src="js/env.js?v=12"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
   <script type="module">
-    import { initWallet, wireHeader, state, signerContract, ensureAllowance, sendTx, toast, cleanErr, UNIT_SECONDS, onWalletChange } from "./js/app.js?v=11";
-    import { renderHeader } from "./js/layout.js?v=11";
-    import { fmtDurationLong } from "./js/helpers.js?v=11";
+    import { initWallet, wireHeader, state, signerContract, ensureAllowance, sendTx, toast, cleanErr, UNIT_SECONDS, onWalletChange } from "./js/app.js?v=12";
+    import { renderHeader } from "./js/layout.js?v=12";
+    import { fmtDurationLong } from "./js/helpers.js?v=12";
 
     renderHeader();
     wireHeader("create");
@@ -142,7 +142,6 @@
         `Deposit amount (${asset.label} locked in the vault)`;
       updateSummary();
     }
-    onWalletChange(renderAssetPicker);
 
     // Unit pickers as chip buttons: native <select> popups are unreliable
     // inside wallet dapp-browser WebViews, so we avoid them entirely.
@@ -240,8 +239,8 @@
         `anyone can trigger the release. After a dispute window of <span class="num">${disputeSec ? fmtDurationLong(disputeSec) : "(not set)"}</span>, ` +
         `your <b>${count} beneficiary${count === 1 ? "" : "ies"}</b> can claim <span class="num">${t1}%</span> of the vault. ` +
         `After another full interval of silence, the remaining <span class="num">${100 - t1}%</span> unlocks. A check-in from you at any point before that revives the vault.` +
-        (amt > 0 ? ` Deposit: <b><span class="num">${amt} ${asset.label}</span></b>.` : "") +
-        (amt > 0 && !asset.native ? ` <small>(an approve transaction will be requested first)</small>` : "");
+        (amt > 0 ? ` Deposit: <b><span class="num">${amt} ${asset?.label ?? "BOT"}</span></b>.` : "") +
+        (amt > 0 && asset && !asset.native ? ` <small>(an approve transaction will be requested first)</small>` : "");
     }
     function trim(n) {
       return String(Math.round(n * 100) / 100);
@@ -312,6 +311,9 @@
       }
     });
 
+    // Subscribe last: onWalletChange invokes the callback synchronously, and
+    // renderAssetPicker -> updateSummary reads DOM/consts declared above.
+    onWalletChange(renderAssetPicker);
     initWallet();
   </script>
 </body>
