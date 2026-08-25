@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/theme.css?v=13" />
+  <link rel="stylesheet" href="css/theme.css?v=14" />
 </head>
 <body>
   <header class="site-header" id="site-header"></header>
@@ -81,13 +81,13 @@
     <div class="footer-note"></div>
   </main>
 
-  <script src="js/config.js?v=13"></script>
-  <script src="js/env.js?v=13"></script>
+  <script src="js/config.js?v=14"></script>
+  <script src="js/env.js?v=14"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
   <script type="module">
-    import { initWallet, wireHeader, state, signerContract, ensureAllowance, sendTx, toast, cleanErr, UNIT_SECONDS, onWalletChange } from "./js/app.js?v=13";
-    import { renderHeader } from "./js/layout.js?v=13";
-    import { fmtDurationLong } from "./js/helpers.js?v=13";
+    import { initWallet, wireHeader, state, signerContract, ensureAllowance, sendTx, toast, cleanErr, UNIT_SECONDS, onWalletChange } from "./js/app.js?v=14";
+    import { renderHeader } from "./js/layout.js?v=14";
+    import { fmtDurationLong } from "./js/helpers.js?v=14";
 
     renderHeader();
     wireHeader("create");
@@ -115,6 +115,7 @@
         { key: ethers.ZeroAddress, label: "BOT", native: true, decimals: 18 },
         ...tokensForDisplay().map(([addr, t]) => ({
           key: addr.toLowerCase(),
+          address: addr.toLowerCase(),
           label: t.symbol,
           native: false,
           decimals: Number(t.decimals),
