@@ -349,13 +349,27 @@ function emit() {
 /* Connect modal                                                       */
 /* ------------------------------------------------------------------ */
 
+function currentPathUrl() {
+  return `${location.host}${location.pathname}${location.search}`;
+}
+
+/** Official universal links that open this page inside each wallet's browser.
+ *  Navigated in the SAME tab so the redirect chain to the app can complete. */
 function deepLinks() {
-  const url = `${location.pathname}${location.search}`;
+  const enc = encodeURIComponent(`https://${currentPathUrl()}`);
   return [
-    { name: "MetaMask", href: `https://metamask.app.link/dapp/${location.host}${url}` },
-    { name: "Trust Wallet", href: `https://link.trustwallet.com/open_url?url=${encodeURIComponent(location.origin + url)}` },
-    { name: "OKX Wallet", href: `https://www.okx.com/download?deeplink=${encodeURIComponent(location.origin + url)}` },
+    { name: "MetaMask", href: `https://metamask.app.link/dapp/${currentPathUrl()}` },
+    { name: "Trust Wallet", href: `https://link.trustwallet.com/open_url?url=${enc}` },
+    { name: "Coinbase Wallet", href: `https://go.cb-w.com/dapp?cb_url=${enc}` },
+    { name: "OKX Wallet", href: `https://www.okx.com/download?deeplink=${enc}` },
   ];
+}
+
+/** Heuristic: are we already inside a wallet's built-in browser? */
+function inWalletBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /MetaMaskMobile|Trust|CoinbaseWallet|OKX|OKApp|Rabby/i.test(ua) && !!window.ethereum;
 }
 
 const GENERIC_ICON = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1faa6e" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M9 10.5a3 3 0 1 1 4.2 2.75c-.75.33-1.2.95-1.2 1.75v.5"/><circle cx="12" cy="18" r=".6" fill="#1faa6e"/></svg>`;
@@ -367,7 +381,9 @@ export function openConnectModal() {
   backdrop.id = "connect-modal";
 
   const options = listWallets();
-  const rows = options.length
+  const inApp = inWalletBrowser();
+
+  const installedRows = options.length
     ? options
         .map(
           (w) => `
@@ -378,7 +394,7 @@ export function openConnectModal() {
       </button>`
         )
         .join("")
-    : `<p class="modal-note">No browser wallet detected. Install one below, or open this site inside your wallet app.</p>`;
+    : `<p class="modal-note">None detected. On desktop, install a wallet extension (MetaMask, Rabby, OKX…). On a phone, use the links below.</p>`;
 
   backdrop.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true" aria-label="Connect wallet">
@@ -386,20 +402,24 @@ export function openConnectModal() {
         <b>Connect a wallet</b>
         <button class="modal-close" aria-label="Close">×</button>
       </div>
-      <div class="wallet-list">${rows}</div>
+
+      <span class="modal-label">On this device</span>
+      <div class="wallet-list">${installedRows}</div>
+      ${inApp ? `<p class="modal-note ok">You're browsing inside a wallet app — use an option above.</p>` : ""}
+
       <div class="modal-section">
-        <span class="modal-label">On a phone?</span>
+        <span class="modal-label">Open in a mobile wallet</span>
         <div class="wallet-list">
           ${deepLinks()
             .map(
               (d) =>
-                `<a class="wallet-option" href="${d.href}" target="_blank" rel="noopener">
+                `<a class="wallet-option" href="${d.href}">
                    ${GENERIC_ICON}<span>${d.name}</span><span class="chev">↗</span>
                  </a>`
             )
             .join("")}
         </div>
-        <p class="modal-note">Opens the site inside the wallet's built-in browser.</p>
+        <p class="modal-note">Opens this page inside the wallet's own browser. Come back here once you're in — your wallets will be listed above.</p>
       </div>
       <p class="modal-note">
         By connecting you agree that all actions are final and on-chain.
