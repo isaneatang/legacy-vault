@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/theme.css" />
+  <link rel="stylesheet" href="css/theme.css?v=7" />
 </head>
 <body>
   <header class="site-header" id="site-header"></header>
@@ -57,16 +57,16 @@
     <div class="footer-note"></div>
   </main>
 
-  <script src="js/config.js"></script>
-  <script src="js/env.js"></script>
+  <script src="js/config.js?v=7"></script>
+  <script src="js/env.js?v=7"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
   <script type="module">
     import {
       initWallet, wireHeader, readOnlyContract, statusName, chipClass,
       ticker, fmtAmt, shortAddr,
-    } from "./js/app.js";
-    import { renderHeader } from "./js/layout.js";
-    import { fmtDurationLong, fmtTimestamp } from "./js/helpers.js";
+    } from "./js/app.js?v=7";
+    import { renderHeader } from "./js/layout.js?v=7";
+    import { fmtDurationLong, fmtTimestamp } from "./js/helpers.js?v=7";
 
     renderHeader();
     wireHeader(null);

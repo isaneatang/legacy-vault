@@ -13,7 +13,7 @@ import {
   UNIT_SECONDS,
   STATUS_NAMES,
   STATUS_CHIPS,
-} from "./helpers.js";
+} from "./helpers.js?v=7";
 
 const CFG = window.LV_CONFIG;
 
