@@ -13,7 +13,7 @@ import {
   UNIT_SECONDS,
   STATUS_NAMES,
   STATUS_CHIPS,
-} from "./helpers.js?v=7";
+} from "./helpers.js?v=8";
 
 const CFG = window.LV_CONFIG;
 
@@ -226,10 +226,44 @@ const WC_ICON = `<svg width="26" height="26" viewBox="0 0 32 32" fill="none"><re
 
 let wcConnecting = false;
 
+/* Lazy loader with caching. Prewarmed as soon as the connect modal opens so
+   clicking WalletConnect doesn't wait on a cold CDN download. */
+let wcModulePromise = null;
+function loadWcModule() {
+  if (!wcModulePromise) {
+    wcModulePromise = import(
+      "https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.18.0/+esm"
+    ).then((m) => m.default ?? m.EthereumProvider);
+    wcModulePromise.catch(() => { wcModulePromise = null; }); // allow retry
+  }
+  return wcModulePromise;
+}
+
+async function buildWcProvider(projectId) {
+  const EthereumProvider = await loadWcModule();
+  const hosted = supportedChainIds().map(Number);
+  const chains = hosted.length ? hosted : [Number(Object.keys(CFG.CHAINS)[0])];
+  const rpcMap = {};
+  for (const [id, c] of Object.entries(CFG.CHAINS)) if (c.rpc) rpcMap[id] = c.rpc;
+  return EthereumProvider.init({
+    projectId,
+    chains,
+    optionalChains: [],
+    rpcMap,
+    showQrModal: true,
+    metadata: {
+      name: "Legacy Vault",
+      description: "On-chain inheritance for BOT Chain",
+      url: location.origin,
+      icons: [],
+    },
+  });
+}
+
 async function connectWalletConnect() {
   const projectId = wcProjectId();
   if (!projectId) {
-      toast("WalletConnect is disabled. Add WC_PROJECT_ID in js/config.js.", true);
+    toast("WalletConnect is disabled. Set WC_PROJECT_ID.", true);
     return;
   }
   if (wcConnecting) return;
@@ -237,27 +271,7 @@ async function connectWalletConnect() {
   closeModal();
   toast("Opening WalletConnect…");
   try {
-    const mod = await import("https://esm.sh/@walletconnect/ethereum-provider@2.18.0");
-    const EthereumProvider = mod.default ?? mod.EthereumProvider;
-
-    const hosted = supportedChainIds().map(Number);
-    const chains = hosted.length ? hosted : [Number(Object.keys(CFG.CHAINS)[0])];
-    const rpcMap = {};
-    for (const [id, c] of Object.entries(CFG.CHAINS)) if (c.rpc) rpcMap[id] = c.rpc;
-
-    const wc = await EthereumProvider.init({
-      projectId,
-      chains,
-      optionalChains: [],
-      rpcMap,
-      showQrModal: true,
-      metadata: {
-        name: "Legacy Vault",
-        description: "On-chain inheritance for BOT Chain",
-        url: location.origin,
-        icons: [],
-      },
-    });
+    const wc = await buildWcProvider(projectId);
 
     // Resume an existing session silently, otherwise show the QR modal.
     await wc.connect();
@@ -283,13 +297,7 @@ async function resumeWalletConnect() {
   const projectId = wcProjectId();
   if (!projectId) return false;
   try {
-    const mod = await import("https://esm.sh/@walletconnect/ethereum-provider@2.18.0");
-    const EthereumProvider = mod.default ?? mod.EthereumProvider;
-    const hosted = supportedChainIds().map(Number);
-    const chains = hosted.length ? hosted : [Number(Object.keys(CFG.CHAINS)[0])];
-    const rpcMap = {};
-    for (const [id, c] of Object.entries(CFG.CHAINS)) if (c.rpc) rpcMap[id] = c.rpc;
-    const wc = await EthereumProvider.init({ projectId, chains, optionalChains: [], rpcMap, showQrModal: true });
+    const wc = await buildWcProvider(projectId);
     if (!wc.session) return false;
     state.wcProvider = wc;
     await activate({ info: { uuid: "wc", name: "WalletConnect", icon: null, rdns: "wc" }, provider: wc }, { silent: true });
@@ -497,6 +505,9 @@ const GENERIC_ICON = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none
 
 export function openConnectModal() {
   closeModal();
+  // Prewarm the WalletConnect bundle in the background (no-ops when disabled).
+  if (wcProjectId()) loadWcModule().catch(() => {});
+
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.id = "connect-modal";

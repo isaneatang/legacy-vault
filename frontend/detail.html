@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/theme.css?v=7" />
+  <link rel="stylesheet" href="css/theme.css?v=8" />
 </head>
 <body>
   <header class="site-header" id="site-header"></header>
@@ -93,16 +93,16 @@
     <div class="footer-note"></div>
   </main>
 
-  <script src="js/config.js?v=7"></script>
-  <script src="js/env.js?v=7"></script>
+  <script src="js/config.js?v=8"></script>
+  <script src="js/env.js?v=8"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
   <script type="module">
     import {
       state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract,
       sendTx, toast, statusName, chipClass, ticker, fmtAmt, shortAddr, cleanErr, explorerLink,
-    } from "./js/app.js?v=7";
-    import { renderHeader } from "./js/layout.js?v=7";
-    import { fmtDurationLong, fmtTimestamp } from "./js/helpers.js?v=7";
+    } from "./js/app.js?v=8";
+    import { renderHeader } from "./js/layout.js?v=8";
+    import { fmtDurationLong, fmtTimestamp } from "./js/helpers.js?v=8";
 
     renderHeader();
     wireHeader(null);
@@ -341,72 +341,88 @@
     });
 
     async function loadFeed(c, gen) {
+      const feed = document.getElementById("feed");
+      feed.innerHTML = `<li><span class="what" style="color:var(--ash-dim)">Loading activity…</span></li>`;
+
       const evs = [
         "VaultCreated", "CheckedIn", "Deposited", "BeneficiaryUpdated", "GuardianChanged",
         "ReleaseTriggered", "ReleaseCancelled", "Tranche1Claimed", "FinalClaimed",
       ];
-      const items = [];
+      const withTimeout = (p, ms) => Promise.race([
+        p,
+        new Promise((_, rej) => setTimeout(() => rej(new Error("rpc timeout")), ms)),
+      ]);
 
-      // Public RPCs often cap or disable eth_getLogs over huge ranges.
-      // Strategy: try the full range once per event; on failure, scan recent
-      // history in bounded chunks instead of silently showing nothing.
-      let provider;
-      try {
-        provider = c.provider;
-      } catch {}
-
-      async function queryEvent(name) {
-        const filter = c.filters[name](vaultId);
+      // Round 1: all nine events in parallel over the full range. Public RPCs
+      // often cap eth_getLogs ranges; failures fall into round 2.
+      const results = {};
+      await Promise.all(evs.map(async (name) => {
         try {
-          return await c.queryFilter(filter, 0, "latest");
-        } catch {}
-        if (!provider?.getBlockNumber) return [];
+          results[name] = await withTimeout(
+            c.queryFilter(c.filters[name](vaultId), 0, "latest"), 10000);
+        } catch {
+          results[name] = null;
+        }
+      }));
+
+      // Round 2 (only for failures): bounded recent window, chunked, parallel.
+      const failed = evs.filter((n) => results[n] === null);
+      if (failed.length) {
         let latest;
         try {
-          latest = await provider.getBlockNumber();
+          latest = Number(await withTimeout(c.provider.getBlockNumber(), 8000));
         } catch {
-          return [];
+          latest = null;
         }
-        const CHUNK = 5000;
-        const SPAN = 150000; // ~last 150k blocks should cover any realistic vault life
-        const from = Math.max(0, latest - SPAN);
-        const out = [];
-        for (let start = latest; start >= from && out.length < 200; start -= CHUNK) {
-          const end = Math.max(from, start - CHUNK + 1);
-          try {
-            out.push(...(await c.queryFilter(filter, end, start)));
-          } catch {} // chunk unsupported; keep going
-          if (gen !== undefined && gen !== loadGen) break;
+        if (latest != null) {
+          const CHUNK = 5000;
+          const SPAN = 100000;
+          const from = Math.max(0, latest - SPAN);
+          await Promise.all(failed.map(async (name) => {
+            const out = [];
+            for (let s = latest; s >= from && out.length < 200; s -= CHUNK) {
+              const e = Math.max(from, s - CHUNK + 1);
+              try {
+                out.push(...await withTimeout(
+                  c.queryFilter(c.filters[name](vaultId), e, s), 6000));
+              } catch {}
+              if (gen !== undefined && gen !== loadGen) return;
+            }
+            results[name] = out;
+          }));
+        } else {
+          for (const name of failed) results[name] = [];
         }
-        return out;
       }
 
+      if (gen !== undefined && gen !== loadGen) return;
+
+      const items = [];
       let anyQueryWorked = false;
       for (const name of evs) {
-        try {
-          const logs = await queryEvent(name);
-          if (logs.length) anyQueryWorked = true;
-          for (const log of logs) {
+        const logs = results[name];
+        if (!logs) continue;           // never even attempted successfully
+        anyQueryWorked = true;
+        for (const log of logs) {
+          try {
             const p = c.interface.parseLog(log);
             items.push({ name, args: p.args, block: log.blockNumber });
-          }
-        } catch {}
-        if (gen !== undefined && gen !== loadGen) return;
+          } catch {}
+        }
       }
 
-      // timestamp resolution (best-effort)
-      const blockCache = {};
-      for (const it of items) {
-        if (blockCache[it.block] === undefined) {
-          try { blockCache[it.block] = (await c.provider.getBlock(it.block)).timestamp; }
-          catch { blockCache[it.block] = null; }
-        }
-        it.ts = blockCache[it.block];
-      }
+      // timestamp resolution (best-effort, parallel per unique block)
+      const blocks = [...new Set(items.map((it) => it.block))];
+      const tsMap = {};
+      await Promise.all(blocks.map(async (b) => {
+        try { tsMap[b] = Number((await withTimeout(c.provider.getBlock(b), 8000)).timestamp); }
+        catch { tsMap[b] = null; }
+      }));
+      for (const it of items) it.ts = tsMap[it.block] ?? null;
+
       items.sort((a, b) => a.block - b.block);
 
       if (gen !== undefined && gen !== loadGen) return;
-      const feed = document.getElementById("feed");
       feed.innerHTML = "";
       if (!items.length) {
         feed.innerHTML = `<li><span class="what" style="color:var(--ash-dim)">${
