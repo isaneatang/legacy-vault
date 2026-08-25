@@ -171,12 +171,12 @@
           const remain = Number(BigInt(v.triggeredAt) + BigInt(v.disputeWindow) - BigInt(now));
           label.textContent = remain > 0 ? "dispute window closes in" : "";
           if (remain > 0) { cd.textContent = fmtDuration(remain); cd.className = "countdown big-countdown"; }
-          else { label.textContent = ""; cd.textContent = "tranche 1 claimable"; cd.className = "countdown big-countdown"; }
+          else { label.textContent = ""; cd.textContent = "you can claim tranche 1"; cd.className = "countdown big-countdown"; }
         } else if (st === 2) {
           const remain = Number(BigInt(v.tranche1ClaimedAt) + BigInt(v.checkInInterval) - BigInt(now));
           label.textContent = remain > 0 ? "final release in" : "";
           if (remain > 0) { cd.textContent = fmtDuration(remain); cd.className = "countdown big-countdown warn"; }
-          else { label.textContent = ""; cd.textContent = "final claim open"; cd.className = "countdown big-countdown"; }
+          else { label.textContent = ""; cd.textContent = "final share claimable"; cd.className = "countdown big-countdown"; }
         } else {
           label.textContent = "status";
           cd.textContent = "settled";

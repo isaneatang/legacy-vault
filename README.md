@@ -139,6 +139,10 @@ SDK — deliberate, for a project meant to run unattended for years:
   back to a generic injected EIP-1193 provider.
 - **Mobile support**: deep links open the site inside each wallet's built-in
   browser (no relay server or QR round-trip needed).
+- **WalletConnect (optional, via Reown)**: set a free `WC_PROJECT_ID` from
+  cloud.reown.com in `frontend/js/config.js` and the modal gains a
+  WalletConnect option (QR + any mobile wallet) as a fallback for browsers
+  where deep links don't launch. The module lazy-loads only when used.
 - **Account menu**: click the connected chip for the full address, one-click
   copy, live balance, explorer link — and a real disconnect.
 - **Automatic network handling**: on connect (and before every write) the app

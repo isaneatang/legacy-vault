@@ -14,6 +14,11 @@ window.LV_CONFIG = {
     // "677": "0x...",   // BOT Chain Mainnet
   },
 
+  // Optional: WalletConnect/Reown relay project id (free at https://cloud.reown.com).
+  // When set, a "WalletConnect" option appears in the connect modal (QR + any
+  // mobile wallet, even where deep links fail). Leave empty to disable.
+  WC_PROJECT_ID: "",
+
   CHAINS: {
     "31337": { name: "Hardhat Local", explorer: "" },
     "968": { name: "BOT Chain Testnet", rpc: "https://rpc.bohr.life", explorer: "https://scan.bohr.life", faucet: "https://faucet.botchain.ai/basic" },

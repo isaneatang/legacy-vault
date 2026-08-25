@@ -27,6 +27,7 @@ export const state = {
   balance: null, // wei as BigInt
   walletName: null, // active provider label
   provider: null, // raw EIP-1193 provider (active)
+  wcProvider: null, // WalletConnect transport when in use
 };
 
 const listeners = [];
@@ -212,6 +213,87 @@ function listWallets() {
 }
 
 /* ------------------------------------------------------------------ */
+/* WalletConnect (Reown) — secondary transport                         */
+/* ------------------------------------------------------------------ */
+
+const WC_ICON = `<svg width="26" height="26" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#3B99FC"/><path d="M9.5 12.6c3.6-3.5 9.4-3.5 13 0l.4.4c.2.2.2.4 0 .6l-1.5 1.4c-.1.1-.3.1-.4 0l-.6-.6c-2.5-2.4-6.5-2.4-9 0l-.6.6c-.1.1-.3.1-.4 0L8.3 13.6c-.2-.2-.2-.4 0-.6l.4-.4z" fill="#fff"/><path d="M16 15.4l2 1.9c.1.1.1.3 0 .4l-1.7 1.7c-.2.2-.4.2-.6 0L16 19.1l-1.7-1.7c-.1-.1-.1-.3 0-.4l1.7-1.9z" fill="#fff"/></svg>`;
+
+let wcConnecting = false;
+
+async function connectWalletConnect() {
+  const projectId = CFG.WC_PROJECT_ID;
+  if (!projectId) {
+    toast("WalletConnect is disabled — add WC_PROJECT_ID in js/config.js.", true);
+    return;
+  }
+  if (wcConnecting) return;
+  wcConnecting = true;
+  closeModal();
+  toast("Opening WalletConnect…");
+  try {
+    const mod = await import("https://esm.sh/@walletconnect/ethereum-provider@2.18.0");
+    const EthereumProvider = mod.default ?? mod.EthereumProvider;
+
+    const hosted = supportedChainIds().map(Number);
+    const chains = hosted.length ? hosted : [Number(Object.keys(CFG.CHAINS)[0])];
+    const rpcMap = {};
+    for (const [id, c] of Object.entries(CFG.CHAINS)) if (c.rpc) rpcMap[id] = c.rpc;
+
+    const wc = await EthereumProvider.init({
+      projectId,
+      chains,
+      optionalChains: [],
+      rpcMap,
+      showQrModal: true,
+      metadata: {
+        name: "Legacy Vault",
+        description: "On-chain inheritance for BOT Chain",
+        url: location.origin,
+        icons: [],
+      },
+    });
+
+    // Resume an existing session silently, otherwise show the QR modal.
+    await wc.connect();
+
+    state.wcProvider = wc;
+    await activate({
+      info: { uuid: "wc", name: "WalletConnect", icon: null, rdns: "wc" },
+      provider: wc,
+    });
+    toast("Connected via WalletConnect");
+  } catch (err) {
+    const msg = String(err?.message ?? err);
+    if (!/rejected|closed|declined/i.test(msg)) toast(`WalletConnect failed: ${cleanErr(err)}`, true);
+  } finally {
+    wcConnecting = false;
+  }
+}
+
+/** If the user last connected via WalletConnect, try to resume that session
+ *  before anything else so reloads keep them logged in. */
+async function resumeWalletConnect() {
+  if (localStorage.getItem(LS_WALLET) !== "wc") return false;
+  const projectId = CFG.WC_PROJECT_ID;
+  if (!projectId) return false;
+  try {
+    const mod = await import("https://esm.sh/@walletconnect/ethereum-provider@2.18.0");
+    const EthereumProvider = mod.default ?? mod.EthereumProvider;
+    const hosted = supportedChainIds().map(Number);
+    const chains = hosted.length ? hosted : [Number(Object.keys(CFG.CHAINS)[0])];
+    const rpcMap = {};
+    for (const [id, c] of Object.entries(CFG.CHAINS)) if (c.rpc) rpcMap[id] = c.rpc;
+    const wc = await EthereumProvider.init({ projectId, chains, optionalChains: [], rpcMap, showQrModal: true });
+    if (!wc.session) return false;
+    state.wcProvider = wc;
+    await activate({ info: { uuid: "wc", name: "WalletConnect", icon: null, rdns: "wc" }, provider: wc }, { silent: true });
+    return !!state.address;
+  } catch {
+    return false;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Connect / disconnect / reconnect                                    */
 /* ------------------------------------------------------------------ */
 
@@ -282,6 +364,12 @@ export async function initWallet() {
   await new Promise((r) => setTimeout(r, 60));
 
   const savedRdns = localStorage.getItem(LS_WALLET);
+
+  if (savedRdns === "wc") {
+    const resumed = await resumeWalletConnect();
+    if (resumed) return;
+  }
+
   const wantsAuto = localStorage.getItem(LS_CONNECTED) === "1";
   const detail = (savedRdns && wallets.get(savedRdns)) || fallbackWallet();
 
@@ -329,6 +417,10 @@ export async function disconnect({ quiet = false } = {}) {
   localStorage.removeItem(LS_CONNECTED);
   localStorage.removeItem(LS_WALLET);
   try {
+    // Terminate a WalletConnect session if that's the active transport.
+    if (state.provider?.session) await state.provider.disconnect();
+  } catch {}
+  try {
     // Best-effort logout so eth_accounts stays empty next visit.
     await state.provider?.request?.({
       method: "wallet_revokePermissions",
@@ -338,6 +430,7 @@ export async function disconnect({ quiet = false } = {}) {
   state.address = null;
   state.balance = null;
   state.walletName = null;
+  state.wcProvider = null;
   state.readProvider = null;
   if (!quiet) emit();
 }
@@ -430,6 +523,20 @@ export function openConnectModal() {
       ${inApp ? `<p class="modal-note ok">You're browsing inside a wallet app — use an option above.</p>` : ""}
 
       <div class="modal-section">
+        <span class="modal-label">Any other wallet</span>
+        <div class="wallet-list">
+          <button class="wallet-option" id="wc-option">
+            ${WC_ICON}<span>WalletConnect</span><span class="chev">→</span>
+          </button>
+        </div>
+        <p class="modal-note">${
+          CFG.WC_PROJECT_ID
+            ? "Scan the QR with any mobile wallet, or continue in your wallet app."
+            : "Currently disabled — add a free WC_PROJECT_ID from cloud.reown.com in js/config.js."
+        }</p>
+      </div>
+
+      <div class="modal-section">
         <span class="modal-label">Open in a mobile wallet</span>
         <div class="wallet-list">
           ${deepLinks()
@@ -452,6 +559,11 @@ export function openConnectModal() {
     if (e.target === backdrop) closeModal();
   });
   backdrop.querySelector(".modal-close").addEventListener("click", closeModal);
+  const wcBtn = backdrop.querySelector("#wc-option");
+  if (wcBtn) wcBtn.addEventListener("click", () => {
+    closeModal();
+    connectWalletConnect();
+  });
   backdrop.querySelectorAll("[data-rdns]").forEach((btn) =>
     btn.addEventListener("click", () => {
       closeModal();

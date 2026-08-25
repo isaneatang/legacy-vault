@@ -103,6 +103,8 @@
           if (btn) btn.addEventListener("click", () => claimT1(id));
           const fbtn = grid.querySelector(`[data-claim-final="${id}"]`);
           if (fbtn) fbtn.addEventListener("click", () => claimFinal(id));
+          const tbtn = grid.querySelector(`[data-trigger="${id}"]`);
+          if (tbtn) tbtn.addEventListener("click", () => triggerRelease(id));
         } catch (err) {
           console.error(err);
         }
@@ -115,7 +117,13 @@
       let phase = "";
       if (st === 0) {
         const dueAt = Number(BigInt(v.lastCheckIn) + BigInt(v.checkInInterval));
-        phase = `Owner is active. If they miss their check-in after ${new Date(dueAt * 1000).toLocaleString()}, the release process can begin.`;
+        const overdue = Date.now() / 1000 >= dueAt;
+        if (overdue) {
+          phase = "The owner missed their check-in. Trigger the release to start your claim — after the dispute window closes, you can claim your share.";
+          action = `<button class="btn primary wide" data-trigger="${id}">Trigger Release</button>`;
+        } else {
+          phase = `Owner is active. If they miss their check-in after ${new Date(dueAt * 1000).toLocaleString()}, you'll be able to trigger the release and start claiming.`;
+        }
       } else if (st === 1) {
         action = claim.canClaimT1
           ? `<button class="btn primary wide" data-claim-t1="${id}">Claim Tranche 1 — est. ${fmtAmt(claim.estimatedT1)} BOT</button>`
@@ -162,26 +170,36 @@
         const st = Number(v.status);
         if (st === 0) {
           const remain = Number(BigInt(v.lastCheckIn) + BigInt(v.checkInInterval) - BigInt(now));
-          label.textContent = "time until trigger becomes possible";
-          el.textContent = remain > 0 ? fmtDuration(remain) : "anyone may trigger now";
+          label.textContent = "time until release can be triggered";
+          el.textContent = remain > 0 ? fmtDuration(remain) : "ready — you can trigger now";
           el.className = "countdown";
         } else if (st === 1) {
           const remain = Number(BigInt(v.triggeredAt) + BigInt(v.disputeWindow) - BigInt(now));
           label.textContent = remain > 0 ? "time until you can claim tranche 1" : "";
           if (remain > 0) { el.textContent = fmtDuration(remain); el.className = "countdown warn"; }
-          else { label.textContent = ""; el.textContent = "tranche 1 claimable"; el.className = "countdown"; }
+          else { label.textContent = ""; el.textContent = "You can claim tranche 1 now"; el.className = "countdown"; }
         } else if (st === 2) {
-          if (claim.canClaimT1) { label.textContent = "tranche 1"; el.textContent = "still yours to take"; el.className = "countdown"; return; }
+          if (claim.canClaimT1) { label.textContent = "tranche 1"; el.textContent = "You can still claim tranche 1"; el.className = "countdown"; return; }
           const remain = Number(BigInt(v.tranche1ClaimedAt) + BigInt(v.checkInInterval) - BigInt(now));
           label.textContent = remain > 0 ? "time until final claim" : "";
           if (remain > 0) { el.textContent = fmtDuration(remain); el.className = "countdown warn"; }
-          else { label.textContent = ""; el.textContent = "final claim open"; el.className = "countdown"; }
+          else { label.textContent = ""; el.textContent = "You can claim your final share now"; el.className = "countdown"; }
         } else {
           label.textContent = "vault";
           el.textContent = claim.canClaimFinal ? "settled — claim your share" : "fully released";
           el.className = "countdown";
         }
       });
+    }
+
+    async function triggerRelease(id) {
+      try {
+        const c = await signerContract();
+        await sendTx(`Trigger release #${id}`, c.triggerRelease(id));
+        render();
+      } catch (err) {
+        console.error(cleanErr(err));
+      }
     }
 
     async function claimT1(id) {
