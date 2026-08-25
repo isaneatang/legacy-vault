@@ -49,17 +49,18 @@
 
         <div class="form-row">
           <div class="field">
-            <label>If you don't check in for…</label>            <div class="inline-group">
+            <label>If you don't check in for…</label>
+            <div class="inline-group">
               <input type="number" id="interval-num" min="1" value="30" />
-              <select id="interval-unit"></select>
             </div>
+            <div class="unit-picker" id="interval-unit"></div>
           </div>
           <div class="field">
             <label>Dispute window after trigger (time for you or your guardian to cancel)</label>
             <div class="inline-group">
               <input type="number" id="dispute-num" min="0" value="7" />
-              <select id="dispute-unit"></select>
             </div>
+            <div class="unit-picker" id="dispute-unit"></div>
           </div>
         </div>
 
@@ -87,14 +88,26 @@
     const rowsEl = document.getElementById("benef-rows");
     const sumEl = document.getElementById("sum-indicator");
 
-    for (const sel of ["interval-unit", "dispute-unit"]) {
-      const el = document.getElementById(sel);
-      for (const [name, secs] of Object.entries(UNIT_SECONDS)) {
-        const opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = name;
-        if ((sel === "interval-unit" && name === "days") || (sel === "dispute-unit" && name === "weeks")) opt.selected = true;
-        el.appendChild(opt);
+    // Unit pickers as chip buttons — native <select> popups are unreliable
+    // inside wallet dapp-browser WebViews, so we avoid them entirely.
+    const unitState = { "interval-unit": "days", "dispute-unit": "weeks" };
+
+    for (const id of Object.keys(unitState)) {
+      const wrap = document.getElementById(id);
+      for (const name of Object.keys(UNIT_SECONDS)) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "unit-btn" + (unitState[id] === name ? " active" : "");
+        btn.textContent = name;
+        btn.dataset.unit = name;
+        btn.addEventListener("click", () => {
+          unitState[id] = name;
+          wrap.querySelectorAll(".unit-btn").forEach((b) =>
+            b.classList.toggle("active", b === btn)
+          );
+          updateSummary();
+        });
+        wrap.appendChild(btn);
       }
     }
 
@@ -142,14 +155,14 @@
       document.getElementById("t1-value").textContent = `${slider.value}%`;
       updateSummary();
     });
-    ["amount", "interval-num", "interval-unit", "dispute-num", "dispute-unit"].forEach((id) =>
+    ["amount", "interval-num", "dispute-num"].forEach((id) =>
       document.getElementById(id).addEventListener("input", updateSummary)
     );
 
     function secondsOf(numId, unitId) {
       const n = parseFloat(document.getElementById(numId).value);
       if (!n || n <= 0) return 0;
-      return Math.round(n * UNIT_SECONDS[document.getElementById(unitId).value]);
+      return Math.round(n * UNIT_SECONDS[unitState[unitId]]);
     }
 
     function updateSummary() {
