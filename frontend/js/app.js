@@ -538,7 +538,9 @@ function emit() {
     for (const cb of [...listeners]) {
       try {
         cb();
-      } catch {}
+      } catch (err) {
+        console.warn("[lv] wallet-listener error:", err);
+      }
     }
   }, 50);
 }
