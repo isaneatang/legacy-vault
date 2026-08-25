@@ -112,16 +112,20 @@
     document.getElementById("title-id").textContent = `#${vaultId}`;
 
     let currentVault = null;
+    let loadGen = 0;
     const isOwner = () => state.address && currentVault && state.address.toLowerCase() === currentVault.owner.toLowerCase();
 
     async function load() {
+      const gen = ++loadGen;
       const c = readOnlyContract();
       try {
         currentVault = await c.getVault(vaultId);
       } catch {
+        if (gen !== loadGen) return;
         document.getElementById("owner-line").textContent = "This vault does not exist (or the contract address in config.js points elsewhere).";
         return;
       }
+      if (gen !== loadGen) return;
       const v = currentVault;
       const st = Number(v.status);
 
@@ -188,7 +192,7 @@
       renderActions();
       renderManageZone(c);
       renderBeneficiaries(c).catch(console.error);
-      loadFeed(c).catch(console.error);
+      loadFeed(c, gen).catch(console.error);
     }
 
     function renderActions() {
@@ -335,7 +339,7 @@
       load();
     });
 
-    async function loadFeed(c) {
+    async function loadFeed(c, gen) {
       const evs = [
         "VaultCreated", "CheckedIn", "Deposited", "BeneficiaryUpdated", "GuardianChanged",
         "ReleaseTriggered", "ReleaseCancelled", "Tranche1Claimed", "FinalClaimed",
@@ -363,6 +367,7 @@
       }
       items.sort((a, b) => a.block - b.block);
 
+      if (gen !== undefined && gen !== loadGen) return;
       const feed = document.getElementById("feed");
       feed.innerHTML = "";
       if (!items.length) {

@@ -41,7 +41,7 @@
   <script src="js/config.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
   <script type="module">
-    import { state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract, sendTx, toast, cleanErr, statusName, chipClass, ticker, fmtAmt, fmtDuration, shortAddr } from "./js/app.js";
+    import { state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract, sendTx, toast, cleanErr, statusName, chipClass, ticker, fmtAmt, fmtDuration, shortAddr, isSupportedChain } from "./js/app.js";
     import { renderHeader } from "./js/layout.js";
 
     renderHeader();
@@ -49,7 +49,7 @@
 
     const grid = document.getElementById("vault-grid");
     const empty = document.getElementById("empty-state");
-    let rendered = false;
+    let renderGen = 0; // discards results of superseded async renders (no duplicates)
 
     function cardHtml(v, id) {
       const st = Number(v.status);
@@ -74,30 +74,41 @@
     }
 
     async function render() {
+      const gen = ++renderGen;
       if (!state.address) {
         grid.innerHTML = "";
         empty.hidden = false;
-         empty.querySelector("p").textContent = "Connect a wallet to view your vaults.";
+        empty.querySelector("p").textContent = "Connect a wallet to view your vaults.";
         return;
       }
       const c = readOnlyContract();
       let ids;
       try {
         ids = (await c.getUserVaultIds(state.address)).map(BigInt);
-      } catch {
-        ids = [];
+      } catch (err) {
+        if (gen !== renderGen) return;
+        console.error(err);
+        grid.innerHTML = "";
+        empty.hidden = false;
+        empty.querySelector("p").textContent = isSupportedChain(state.chainId)
+          ? "Couldn't read from the chain — check your connection and retry."
+          : "Wrong network — switch your wallet to BOT Chain to load your vaults.";
+        return;
       }
+      if (gen !== renderGen) return;
       if (!ids.length) {
         grid.innerHTML = "";
-        if (!rendered) empty.hidden = false;
-        rendered = true;
+        empty.hidden = false;
+        empty.querySelector("p").textContent = "No vaults yet for this address.";
         return;
       }
       empty.hidden = true;
       grid.innerHTML = "";
       for (const id of ids) {
+        if (gen !== renderGen) return;
         try {
           const v = await c.getVault(id);
+          if (gen !== renderGen) return;
           grid.insertAdjacentHTML("beforeend", cardHtml(v, id));
           wireCountdown(id, v);
         } catch (err) {
@@ -143,10 +154,7 @@
     }
 
     initWallet().then(render).catch(console.error);
-    onWalletChange(() => {
-      rendered = false;
-      render();
-    });
+    onWalletChange(() => render());
   </script>
 </body>
 </html>

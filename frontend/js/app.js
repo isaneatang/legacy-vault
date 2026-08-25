@@ -127,6 +127,9 @@ export async function ensureChain() {
 /* ------------------------------------------------------------------ */
 
 function defaultReadRpc() {
+  // Prefer chains that actually host the vault (testnet/mainnet); skip local dev.
+  const hosted = supportedChainIds();
+  if (hosted.length) return CFG.CHAINS[hosted[0]]?.rpc ?? null;
   const anyRpc = Object.values(CFG.CHAINS).find((c) => c.rpc);
   return anyRpc?.rpc ?? null;
 }
@@ -260,7 +263,17 @@ export async function refreshBalance() {
     params: [state.address, "latest"],
   });
   state.balance = BigInt(hex);
-  emit();
+  patchBalanceUI();
+}
+
+/* Lightweight in-place update of balance text — deliberately does NOT emit,
+   so a background poll never re-renders whole pages. */
+function patchBalanceUI() {
+  if (state.balance == null) return;
+  const txt = `${fmtAmt(state.balance, 3)} ${CFG.TOKEN_SYMBOL}`;
+  document.querySelectorAll("[data-balance-slot]").forEach((el) => {
+    el.textContent = txt;
+  });
 }
 
 export async function initWallet() {
@@ -337,12 +350,21 @@ export function onWalletChange(cb) {
   listeners.push(cb);
   cb(); // initial render
 }
+
+/* Coalesced emit: bursty events (connect + balance + chain arriving together)
+   collapse into a single listener pass, so pages re-render once, not N times. */
+let emitQueued = false;
 function emit() {
-  listeners.forEach((cb) => {
-    try {
-      cb();
-    } catch {}
-  });
+  if (emitQueued) return;
+  emitQueued = true;
+  setTimeout(() => {
+    emitQueued = false;
+    for (const cb of [...listeners]) {
+      try {
+        cb();
+      } catch {}
+    }
+  }, 50);
 }
 
 /* ------------------------------------------------------------------ */
@@ -487,6 +509,7 @@ export function wireHeader(activeNav) {
     } else if (state.balance != null) {
       const bal = document.createElement("span");
       bal.className = "mono";
+      bal.dataset.balanceSlot = "1";
       bal.style.opacity = ".75";
       bal.textContent = `${fmtAmt(state.balance, 3)} ${CFG.TOKEN_SYMBOL}`;
       chip.appendChild(bal);
@@ -524,7 +547,7 @@ function openAccountMenu(zone, rerender) {
   menu.innerHTML = `
     <div class="am-row am-addr mono" title="${state.address}">${state.address}</div>
     <button class="am-row am-btn" data-act="copy">Copy address</button>
-    <div class="am-row am-static">Balance <b>${state.balance != null ? fmtAmt(state.balance, 4) + " " + CFG.TOKEN_SYMBOL : "…"}</b></div>
+    <div class="am-row am-static">Balance <b data-balance-slot>${state.balance != null ? fmtAmt(state.balance, 4) + " " + CFG.TOKEN_SYMBOL : "…"}</b></div>
     <div class="am-row am-static">Network <b>${chain?.name ?? `chain ${state.chainId}`}</b></div>
     ${wrong ? `<button class="am-row am-btn am-switch" data-act="switch">Switch to ${preferredChain()?.name ?? "supported network"}</button>` : ""}
     ${link ? `<a class="am-row am-btn" data-act="explorer" href="${link}" target="_blank" rel="noopener">View on explorer ↗</a>` : ""}

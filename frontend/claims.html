@@ -38,7 +38,7 @@
   <script type="module">
     import {
       state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract,
-      sendTx, toast, statusName, chipClass, ticker, fmtAmt, shortAddr, cleanErr,
+      sendTx, toast, statusName, chipClass, ticker, fmtAmt, shortAddr, cleanErr, isSupportedChain,
     } from "./js/app.js";
     import { renderHeader } from "./js/layout.js";
 
@@ -47,8 +47,10 @@
 
     const grid = document.getElementById("claim-grid");
     const empty = document.getElementById("empty-state");
+    let renderGen = 0;
 
     async function render() {
+      const gen = ++renderGen;
       if (!state.address) {
         grid.innerHTML = "";
         empty.hidden = false;
@@ -59,8 +61,16 @@
       let ids;
       try {
         ids = (await c.getVaultsByBeneficiary(state.address)).map(BigInt);
-      } catch {
-        ids = [];
+        if (gen !== renderGen) return;
+      } catch (err) {
+        if (gen !== renderGen) return;
+        console.error(err);
+        grid.innerHTML = "";
+        empty.hidden = false;
+        document.getElementById("empty-msg").textContent = isSupportedChain(state.chainId)
+          ? "Couldn't read from the chain — check your connection and retry."
+          : "Wrong network — switch your wallet to BOT Chain to load your claims.";
+        return;
       }
 
       // The on-chain index is append-only: filter out ids where we're no longer a beneficiary.
@@ -69,20 +79,24 @@
         try {
           if (await c.isBeneficiary(id, state.address)) live.push(id);
         } catch {}
+        if (gen !== renderGen) return;
       }
 
       if (!live.length) {
         grid.innerHTML = "";
         empty.hidden = false;
+        document.getElementById("empty-msg").textContent = "No claimable assets.";
         return;
       }
       empty.hidden = true;
       grid.innerHTML = "";
 
       for (const id of live) {
+        if (gen !== renderGen) return;
         try {
           const [v, claim] = await Promise.all([c.getVault(id), c.getClaimState(id, state.address)]);
           const myShareBps = await c.shareOf(id, state.address);
+          if (gen !== renderGen) return;
           grid.insertAdjacentHTML("beforeend", cardHtml(id, v, claim, myShareBps));
           wireCountdown(id, v, claim);
           const btn = grid.querySelector(`[data-claim-t1="${id}"]`);
