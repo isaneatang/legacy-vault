@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/theme.css?v=8" />
+  <link rel="stylesheet" href="css/theme.css?v=9" />
 </head>
 <body>
   <header class="site-header" id="site-header"></header>
@@ -33,15 +33,15 @@
     <div class="footer-note"></div>
   </main>
 
-  <script src="js/config.js?v=8"></script>
-  <script src="js/env.js?v=8"></script>
+  <script src="js/config.js?v=9"></script>
+  <script src="js/env.js?v=9"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
   <script type="module">
     import {
       state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract,
-      sendTx, toast, statusName, chipClass, ticker, fmtAmt, shortAddr, cleanErr, isSupportedChain,
-    } from "./js/app.js?v=8";
-    import { renderHeader } from "./js/layout.js?v=8";
+      sendTx, toast, statusName, chipClass, ticker, fmtAmt, shortAddr, cleanErr, isSupportedChain, assetMeta,
+    } from "./js/app.js?v=9";
+    import { renderHeader } from "./js/layout.js?v=9";
 
     renderHeader();
     wireHeader("claims");
@@ -97,8 +97,9 @@
         try {
           const [v, claim] = await Promise.all([c.getVault(id), c.getClaimState(id, state.address)]);
           const myShareBps = await c.shareOf(id, state.address);
+          const meta = await assetMeta(v.token);
           if (gen !== renderGen) return;
-          grid.insertAdjacentHTML("beforeend", cardHtml(id, v, claim, myShareBps));
+          grid.insertAdjacentHTML("beforeend", cardHtml(id, v, claim, myShareBps, meta));
           wireCountdown(id, v, claim);
           const btn = grid.querySelector(`[data-claim-t1="${id}"]`);
           if (btn) btn.addEventListener("click", () => claimT1(id));
@@ -112,10 +113,12 @@
       }
     }
 
-    function cardHtml(id, v, claim, myShareBps) {
+    function cardHtml(id, v, claim, myShareBps, meta) {
       const st = Number(v.status);
       let action = "";
       let phase = "";
+      const estT1 = `est. ${fmtAmt(claim.estimatedT1, 4, meta.decimals)} ${meta.symbol}`;
+      const estFinal = `est. ${fmtAmt(claim.estimatedFinal, 4, meta.decimals)} ${meta.symbol}`;
       if (st === 0) {
         const dueAt = Number(BigInt(v.lastCheckIn) + BigInt(v.checkInInterval));
         const overdue = Date.now() / 1000 >= dueAt;
@@ -127,18 +130,18 @@
         }
       } else if (st === 1) {
           action = claim.canClaimT1
-            ? `<button class="btn primary wide" data-claim-t1="${id}">Claim Tranche 1 (est. ${fmtAmt(claim.estimatedT1)} BOT)</button>`
+            ? `<button class="btn primary wide" data-claim-t1="${id}">Claim Tranche 1 (${estT1})</button>`
             : `<p style="color:var(--gold); margin:0">Dispute window open. Tranche 1 unlocks when it closes.</p>`;
       } else if (st === 2) {
         if (claim.canClaimT1) {
-          action += `<button class="btn primary wide" data-claim-t1="${id}" style="margin-bottom:8px">Claim Tranche 1 (est. ${fmtAmt(claim.estimatedT1)} BOT)</button>`;
+          action += `<button class="btn primary wide" data-claim-t1="${id}" style="margin-bottom:8px">Claim Tranche 1 (${estT1})</button>`;
         }
         action += claim.canClaimFinal
-          ? `<button class="btn primary wide" data-claim-final="${id}">Claim Final Share (est. ${fmtAmt(claim.estimatedFinal)} BOT)</button>`
+          ? `<button class="btn primary wide" data-claim-final="${id}">Claim Final Share (${estFinal})</button>`
           : `<p style="color:var(--ash); margin:6px 0 0">Final share unlocks after one more full check-in interval of owner silence.</p>`;
       } else {
         action = claim.canClaimFinal
-          ? `<button class="btn primary wide" data-claim-final="${id}">Claim Final Share (est. ${fmtAmt(claim.estimatedFinal)} BOT)</button>`
+          ? `<button class="btn primary wide" data-claim-final="${id}">Claim Final Share (${estFinal})</button>`
           : `<p style="color:var(--ash-dim); margin:0">This vault is fully settled.</p>`;
       }
 
@@ -151,7 +154,7 @@
           </div>
           <div class="meta-row">
             <span>your share <b>${Number(myShareBps) / 100}%</b></span>
-            <span>vault holds <b>${fmtAmt(v.balance)} BOT</b></span>
+            <span>vault holds <b>${fmtAmt(v.balance, 4, meta.decimals)} ${meta.symbol}</b></span>
           </div>
           ${phase ? `<p style="color:var(--ash-dim); font-size:13px; margin:0">${phase}</p>` : ""}
           <div>

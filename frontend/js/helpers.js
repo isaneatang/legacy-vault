@@ -15,8 +15,8 @@ export const STATUS_CHIPS = ["st-active", "st-pending", "st-tranche", "st-releas
 
 export const LV_ABI = [
   // writes
-  "function createVault(address[] beneficiaries, uint16[] shares, address guardian, uint256 checkInInterval, uint256 disputeWindow, uint16 tranche1Percent) payable returns (uint256 vaultId)",
-  "function deposit(uint256 vaultId) payable",
+  "function createVault(address[] beneficiaries, uint16[] shares, address guardian, uint256 checkInInterval, uint256 disputeWindow, uint16 tranche1Percent, address asset, uint256 amount) payable returns (uint256 vaultId)",
+  "function deposit(uint256 vaultId, uint256 amount) payable",
   "function checkIn(uint256 vaultId)",
   "function triggerRelease(uint256 vaultId)",
   "function cancelRelease(uint256 vaultId)",
@@ -27,7 +27,7 @@ export const LV_ABI = [
   "function updateShares(uint256 vaultId, address[] wallets, uint16[] shares)",
   "function changeGuardian(uint256 vaultId, address newGuardian)",
   // reads
-  "function getVault(uint256) view returns (address owner, address guardian, uint256 balance, uint256 checkInInterval, uint256 lastCheckIn, uint256 disputeWindow, uint16 tranche1Percent, uint256 triggeredAt, uint256 tranche1ClaimedAt, uint8 status)",
+  "function getVault(uint256) view returns (address owner, address guardian, address token, uint256 balance, uint256 checkInInterval, uint256 lastCheckIn, uint256 disputeWindow, uint16 tranche1Percent, uint256 triggeredAt, uint256 tranche1ClaimedAt, uint8 status)",
   "function getBeneficiaries(uint256) view returns (address[] wallets, uint16[] shares, bool[] claimedT1, bool[] claimedFinal)",
   "function getClaimState(uint256, address) view returns (bool canClaimT1, bool canClaimFinal, uint256 estimatedT1, uint256 estimatedFinal)",
    "function isBeneficiary(uint256, address) view returns (bool)",
@@ -48,6 +48,17 @@ export const LV_ABI = [
   "event FinalClaimed(uint256 indexed vaultId, address indexed beneficiary, uint256 amount)",
 ];
 
+/** Minimal ERC-20 surface: asset metadata + the approve/allowance dance. */
+export const ERC20_ABI = [
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+  "function balanceOf(address) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+];
+
+export const NATIVE_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 /* ---------------- formatting ---------------- */
 
 export function shortAddr(a, size = 4) {
@@ -55,11 +66,11 @@ export function shortAddr(a, size = 4) {
   return `${a.slice(0, 2 + size)}…${a.slice(-size)}`;
 }
 
-/** wei → trimmed ether string. */
-export function fmtAmt(wei, maxDecimals = 4) {
+/** raw units → trimmed decimal string (decimals defaults to 18 / native). */
+export function fmtAmt(wei, maxDecimals = 4, decimals = 18) {
   try {
-    const eth = Number(wei) / 1e18;
-    const s = eth.toLocaleString(undefined, { maximumFractionDigits: maxDecimals });
+    const val = Number(wei) / 10 ** Number(decimals || 18);
+    const s = val.toLocaleString(undefined, { maximumFractionDigits: maxDecimals });
     return s;
   } catch {
     return String(wei);

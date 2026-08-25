@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/theme.css?v=8" />
+  <link rel="stylesheet" href="css/theme.css?v=9" />
 </head>
 <body>
   <header class="site-header" id="site-header"></header>
@@ -21,7 +21,7 @@
         <h3>State</h3>
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
           <div>
-            <div class="balance-line"><span id="balance"></span> <small>BOT</small></div>
+            <div class="balance-line"><span id="balance"></span> <small id="balance-sym">…</small></div>
             <span class="chip st-active" id="status-chip"></span>
           </div>
           <div style="text-align:right">
@@ -38,6 +38,7 @@
         <dl class="kv">
           <dt>Owner</dt><dd id="kv-owner"></dd>
           <dt>Guardian</dt><dd id="kv-guardian"></dd>
+          <dt>Asset</dt><dd id="kv-asset"></dd>
           <dt>Check-in interval</dt><dd id="kv-interval"></dd>
           <dt>Last check-in</dt><dd id="kv-lastcheckin"></dd>
           <dt>Dispute window</dt><dd id="kv-dispute"></dd>
@@ -56,10 +57,11 @@
           <h3>Top up</h3>
           <form id="deposit-form">
             <div class="field">
-              <label>Amount (BOT)</label>
+              <label>Amount (<span id="deposit-sym">…</span>)</label>
               <input type="text" id="deposit-amt" inputmode="decimal" placeholder="1.0" />
             </div>
             <button class="btn primary wide">Deposit</button>
+            <p class="notice" id="deposit-note" hidden style="margin-top:10px"></p>
           </form>
         </div>
 
@@ -93,16 +95,17 @@
     <div class="footer-note"></div>
   </main>
 
-  <script src="js/config.js?v=8"></script>
-  <script src="js/env.js?v=8"></script>
+  <script src="js/config.js?v=9"></script>
+  <script src="js/env.js?v=9"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
   <script type="module">
     import {
       state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract,
       sendTx, toast, statusName, chipClass, ticker, fmtAmt, shortAddr, cleanErr, explorerLink,
-    } from "./js/app.js?v=8";
-    import { renderHeader } from "./js/layout.js?v=8";
-    import { fmtDurationLong, fmtTimestamp } from "./js/helpers.js?v=8";
+      assetMeta, ensureAllowance,
+    } from "./js/app.js?v=9";
+    import { renderHeader } from "./js/layout.js?v=9";
+    import { fmtDurationLong, fmtTimestamp } from "./js/helpers.js?v=9";
 
     renderHeader();
     wireHeader(null);
@@ -113,6 +116,7 @@
     document.getElementById("title-id").textContent = `#${vaultId}`;
 
     let currentVault = null;
+    let asset = { native: true, symbol: "…", decimals: 18 };
     let loadGen = 0;
     const isOwner = () => state.address && currentVault && state.address.toLowerCase() === currentVault.owner.toLowerCase();
 
@@ -129,12 +133,24 @@
       if (gen !== loadGen) return;
       const v = currentVault;
       const st = Number(v.status);
+      asset = await assetMeta(v.token).catch(() => ({ native: false, symbol: shortAddr(v.token), decimals: 18 }));
+      if (gen !== loadGen) return;
 
       document.getElementById("owner-line").innerHTML =
         `Owned by <b>${v.owner === ethers.ZeroAddress ? "" : v.owner}</b>` +
         (state.address && isOwner() ? " (that's you)" : "");
 
-      document.getElementById("balance").textContent = fmtAmt(v.balance);
+      document.getElementById("balance").textContent = fmtAmt(v.balance, 4, asset.decimals);
+      document.getElementById("balance-sym").textContent = asset.symbol;
+      document.getElementById("kv-asset").textContent = `${asset.symbol}${asset.native ? " (native)" : ` · ${shortAddr(asset.address ?? "", 6)}`}`;
+      const depSym = document.getElementById("deposit-sym");
+      if (depSym) depSym.textContent = asset.symbol;
+      const noteEl = document.getElementById("deposit-note");
+      if (noteEl) {
+        noteEl.hidden = asset.native;
+        noteEl.className = "notice";
+        if (!asset.native) noteEl.textContent = `Deposits pull ${asset.symbol} via approve + transferFrom.`;
+      }
       const chip = document.getElementById("status-chip");
       chip.textContent = statusName(st);
       chip.className = `chip ${chipClass(st)}${st === 1 ? " st-danger" : ""}`;
@@ -307,8 +323,15 @@
       e.preventDefault();
       const amt = document.getElementById("deposit-amt").value;
       if (!(parseFloat(amt) > 0)) return toast("Enter an amount.", true);
+      let wei;
+      try {
+        wei = asset.native ? ethers.parseEther(amt) : ethers.parseUnits(amt, asset.decimals);
+      } catch {
+        return toast("Invalid amount.", true);
+      }
       const c = await signerContract();
-      await sendTx("Deposit", c.deposit(vaultId, { value: ethers.parseEther(amt) }));
+      if (!asset.native) await ensureAllowance(c.runner, asset, await c.getAddress(), wei);
+      await sendTx("Deposit", c.deposit(vaultId, wei));
       load();
     });
 
@@ -442,12 +465,12 @@
       const li = document.createElement("li");
       let what = name;
       if (name === "CheckedIn") what = `<b>${shortAddr(args.owner)}</b> checked in. Deadline reset.`;
-      else if (name === "Deposited") what = `<b>${shortAddr(args.owner)}</b> deposited <b>${fmtAmt(args.amount)} BOT</b>.`;
-      else if (name === "VaultCreated") what = `Vault created by <b>${shortAddr(args.owner)}</b> with <b>${fmtAmt(args.amount)} BOT</b>.`;
+      else if (name === "Deposited") what = `<b>${shortAddr(args.owner)}</b> deposited <b>${fmtAmt(args.amount, 4, asset.decimals)} ${asset.symbol}</b>.`;
+      else if (name === "VaultCreated") what = `Vault created by <b>${shortAddr(args.owner)}</b> with <b>${fmtAmt(args.amount, 4, asset.decimals)} ${asset.symbol}</b>.`;
       else if (name === "ReleaseTriggered") what = `Release triggered. The check-in deadline had passed.`;
       else if (name === "ReleaseCancelled") what = `<b>${shortAddr(args.by)}</b> cancelled the triggered release.`;
-      else if (name === "Tranche1Claimed") what = `<b>${shortAddr(args.beneficiary)}</b> claimed tranche 1: <b>${fmtAmt(args.amount)} BOT</b>.`;
-      else if (name === "FinalClaimed") what = `<b>${shortAddr(args.beneficiary)}</b> claimed their final share: <b>${fmtAmt(args.amount)} BOT</b>.`;
+      else if (name === "Tranche1Claimed") what = `<b>${shortAddr(args.beneficiary)}</b> claimed tranche 1: <b>${fmtAmt(args.amount, 4, asset.decimals)} ${asset.symbol}</b>.`;
+      else if (name === "FinalClaimed") what = `<b>${shortAddr(args.beneficiary)}</b> claimed their final share: <b>${fmtAmt(args.amount, 4, asset.decimals)} ${asset.symbol}</b>.`;
       else if (name === "BeneficiaryUpdated") what = `Beneficiary set rewritten by the owner.`;
       else if (name === "GuardianChanged") what = `Guardian changed to <b>${shortAddr(args.newGuardian)}</b>.`;
 

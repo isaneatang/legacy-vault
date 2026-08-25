@@ -14,8 +14,9 @@ Crypto wealth dies with its keys. If something happens to you, your family canno
 reach your funds — and if nothing happens to you, no one should be able to take them.
 Legacy Vault sits between those two worlds:
 
-1. **You** deposit native BOT into a vault and name beneficiaries (with % shares)
-   and an optional guardian.
+1. **You** deposit native BOT *or* an ERC-20 such as USDT into a vault and name
+   beneficiaries (with % shares) and an optional guardian. Each vault holds
+   exactly one asset, chosen at creation.
 2. **You check in** periodically — one transaction proves you're alive.
 3. **If you go silent** past your configured interval, *anyone* (a beneficiary, a
    bot, a friend) can permissionlessly trigger the release.
@@ -63,7 +64,8 @@ Documented rules worth knowing:
 | Dispute window | Guardian **or** owner cancels while open. Window length is owner-chosen (can be 0). |
 | R1 — revival | Owner check-in during `TrancheOneReleased` returns the vault to `Active`. The first tranche already paid stays paid; unclaimed tranche-1 slices are forfeited back to the vault. |
 | Final delay | One more full `checkInInterval` of silence after tranche-1 before the remainder unlocks. |
-| Pull payments | Every beneficiary claims their own slice via `claim{value}` + checks-effects-interactions + `ReentrancyGuard`. A reverting receiver can never DoS other claimants. |
+| Pull payments | Every beneficiary claims their own slice via `claim{value}` / `SafeERC20.safeTransfer` + checks-effects-interactions + `ReentrancyGuard`. A reverting receiver can never DoS other claimants. |
+| Dual asset | Each vault is denominated in native BOT (`token = 0x0`) or a single ERC-20 (e.g. USDT) chosen at creation. Token deposits use `transferFrom` (approve first); credited amount is measured by balance delta so fee-on-transfer tokens can't corrupt accounting. |
 | Pool snapshots | Tranche pools are snapshotted at the first claim of each phase — payout amounts don't depend on claim order. |
 | Shares | Basis points (10000 = 100%), validated to sum exactly 10000 at creation. During management edits shares act as relative weights against the live total, so under-allocation is always safe. |
 
@@ -155,12 +157,6 @@ face for the brand and headings only.
 
 ## Roadmap (explicitly out of scope for MVP)
 
-- **ERC-20 token support** — the MVP deliberately holds native BOT only, but the
-  design scales cleanly: every `msg.value` becomes a `token.transferFrom` on
-  deposit, every payout call becomes `SafeERC20.safeTransfer`, and balances are
-  tracked per-vault instead of read from `address(this).balance`. No state-machine
-  changes required — the check-in / trigger / dispute / tranche logic is
-  asset-agnostic by construction.
 - Multiple guardians / multisig cancellation
 - AI/LLM-based notification layer ("your owner has gone quiet…")
 - Death-certificate / proof-of-death document verification

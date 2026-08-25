@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/theme.css?v=8" />
+  <link rel="stylesheet" href="css/theme.css?v=9" />
 </head>
 <body>
   <header class="site-header" id="site-header"></header>
@@ -38,12 +38,12 @@
     <div class="footer-note"></div>
   </main>
 
-  <script src="js/config.js?v=8"></script>
-  <script src="js/env.js?v=8"></script>
+  <script src="js/config.js?v=9"></script>
+  <script src="js/env.js?v=9"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
   <script type="module">
-    import { state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract, sendTx, toast, cleanErr, statusName, chipClass, ticker, fmtAmt, fmtDuration, shortAddr, isSupportedChain } from "./js/app.js?v=8";
-    import { renderHeader } from "./js/layout.js?v=8";
+    import { state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract, sendTx, toast, cleanErr, statusName, chipClass, ticker, fmtAmt, fmtDuration, shortAddr, isSupportedChain, assetMeta } from "./js/app.js?v=9";
+    import { renderHeader } from "./js/layout.js?v=9";
 
     renderHeader();
     wireHeader("dashboard");
@@ -52,7 +52,7 @@
     const empty = document.getElementById("empty-state");
     let renderGen = 0; // discards results of superseded async renders (no duplicates)
 
-    function cardHtml(v, id) {
+    function cardHtml(v, id, meta) {
       const st = Number(v.status);
       return `
         <div class="panel vault-card glow" id="vault-card-${id}">
@@ -61,7 +61,7 @@
             <span class="chip ${chipClass(st)}">${statusName(st)}</span>
           </div>
           <div>
-            <div class="balance-line">${fmtAmt(v.balance)} <small>BOT secured</small></div>
+            <div class="balance-line">${fmtAmt(v.balance, 4, meta.decimals)} <small>${meta.symbol} secured</small></div>
           </div>
           <div>
             <div class="countdown-label" id="cd-label-${id}">check-in due in</div>
@@ -110,7 +110,9 @@
         try {
           const v = await c.getVault(id);
           if (gen !== renderGen) return;
-          grid.insertAdjacentHTML("beforeend", cardHtml(v, id));
+          const meta = await assetMeta(v.token);
+          if (gen !== renderGen) return;
+          grid.insertAdjacentHTML("beforeend", cardHtml(v, id, meta));
           wireCountdown(id, v);
         } catch (err) {
           console.error(err);

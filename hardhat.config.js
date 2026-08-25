@@ -34,6 +34,7 @@ module.exports = {
     settings: {
       optimizer: { enabled: true, runs: 200 },
       evmVersion: "paris", // avoid PUSH0 in case of EVM-version quirks on sidechains
+      viaIR: true, // required: createVault's 8-arg frame exceeds legacy-codegen limits
     },
   },
   networks: {

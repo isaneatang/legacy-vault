@@ -5,6 +5,8 @@
 
 import {
   LV_ABI,
+  ERC20_ABI,
+  NATIVE_ADDRESS,
   shortAddr,
   fmtAmt,
   fmtDuration,
@@ -13,7 +15,7 @@ import {
   UNIT_SECONDS,
   STATUS_NAMES,
   STATUS_CHIPS,
-} from "./helpers.js?v=8";
+} from "./helpers.js?v=9";
 
 const CFG = window.LV_CONFIG;
 
@@ -175,6 +177,70 @@ export async function signerContract() {
   const browser = new ethers.BrowserProvider(state.provider, "any");
   const signer = await browser.getSigner();
   return contractFor(signer);
+}
+
+/* ------------------------------------------------------------------ */
+/* Vault assets (native BOT or ERC-20)                                 */
+/* ------------------------------------------------------------------ */
+
+const assetCache = new Map(); // lowercase token address -> meta
+
+/** Any read-capable provider: injected wallet when on a supported chain,
+ *  otherwise the configured public RPC. */
+function anyReadProvider() {
+  if (state.chainId && window.ethereum && isSupportedChain(state.chainId)) {
+    return new ethers.BrowserProvider(window.ethereum, "any");
+  }
+  if (!state.readProvider) {
+    const url = defaultReadRpc();
+    state.readProvider = url ? new ethers.JsonRpcProvider(url) : null;
+  }
+  return state.readProvider;
+}
+
+/**
+ * Metadata for a vault's asset. Zero address => native BOT.
+ * Tokens listed in CFG.TOKENS (lowercase-keyed) skip the RPC round-trip;
+ * unknown tokens resolve symbol/decimals on-chain, with a short-address
+ * fallback so pages never break on a misconfigured token.
+ */
+export async function assetMeta(tokenAddress) {
+  const addr = String(tokenAddress ?? "").toLowerCase();
+  if (!addr || addr === NATIVE_ADDRESS) {
+    return { address: null, native: true, symbol: CFG.TOKEN_SYMBOL || "BOT", decimals: 18 };
+  }
+  const cached = assetCache.get(addr);
+  if (cached) return cached;
+
+  let meta = null;
+  for (const [key, t] of Object.entries(CFG.TOKENS ?? {})) {
+    if (key.toLowerCase() === addr && t?.symbol && t?.decimals != null) {
+      meta = { address: key.toLowerCase(), native: false, symbol: t.symbol, decimals: Number(t.decimals) };
+      break;
+    }
+  }
+  if (!meta) {
+    try {
+      const t = new ethers.Contract(addr, ERC20_ABI, anyReadProvider());
+      const [symbol, decimals] = await Promise.all([t.symbol(), t.decimals()]);
+      meta = { address: addr, native: false, symbol, decimals: Number(decimals) };
+    } catch {}
+  }
+  if (!meta) meta = { address: addr, native: false, symbol: shortAddr(addr), decimals: 18 };
+  assetCache.set(addr, meta);
+  return meta;
+}
+
+/** ERC-20 approval dance before createVault/deposit on a token vault. */
+export async function ensureAllowance(signer, tokenMeta, spender, amountWei) {
+  if (!tokenMeta.native) {
+    const token = new ethers.Contract(tokenMeta.address, ERC20_ABI, signer);
+    const owner = await signer.getAddress();
+    const current = await token.allowance(owner, spender);
+    if (current < amountWei) {
+      await sendTx(`${tokenMeta.symbol} approval`, token.approve(spender, amountWei));
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */

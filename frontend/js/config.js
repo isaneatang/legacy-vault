@@ -10,7 +10,7 @@ window.LV_CONFIG = {
   // Per-network overrides (lowercase chainId keys). Fill in after deploying
   // to BOT Chain testnet/mainnet.
   VAULT_ADDRESS_BY_CHAIN: {
-    "968": "0x9A93Beb4F9E73ED6b6Cf8CB390A2C35AB8CdBEE4", // BOT Chain Testnet
+    "968": "0x0f64E15F24D854C7D5098708bD5Ae62A47316A7f", // BOT Chain Testnet (dual-asset: BOT + USDT)
     // "677": "0x...",   // BOT Chain Mainnet
   },
 
@@ -27,4 +27,11 @@ window.LV_CONFIG = {
   },
 
   TOKEN_SYMBOL: "BOT",
+
+  // ERC-20 assets a vault can be denominated in (e.g. USDT). Keys must be
+  // lowercase addresses. Symbol/decimals verified on-chain (eth_call).
+  TOKENS: {
+    "0x75edc9335175fc0552d51d48439f229c10420fe3": { symbol: "USDT", decimals: 6 }, // BOT Chain Testnet
+    "0xababc7ddc03e501d190c676bf3d92ef0e6e87a3c": { symbol: "USDT", decimals: 6 }, // BOT Chain Mainnet
+  },
 };

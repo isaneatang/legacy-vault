@@ -16,7 +16,7 @@ async function deployFixture() {
   const disputeWindow = DAY / 2n;
   await vault
     .connect(owner)
-    .createVault([ben1.address, ben2.address], [6000, 4000], guardian.address, interval, disputeWindow, 25, {
+    .createVault([ben1.address, ben2.address], [6000, 4000], guardian.address, interval, disputeWindow, 25, ethers.ZeroAddress, deposit, {
       value: deposit,
     });
 
@@ -58,32 +58,37 @@ describe("LegacyVault", function () {
     it("rejects shares that do not sum to 10000 bps", async function () {
       const { vault, owner, ben1, ben2 } = await loadFixture(deployFixture);
       await expect(
-        vault.connect(owner).createVault([ben1.address, ben2.address], [5000, 4000], owner.address, DAY, DAY, 25, {
-          value: 1,
-        })
+        vault.connect(owner).createVault([ben1.address, ben2.address], [5000, 4000], owner.address, DAY, DAY, 25, ethers.ZeroAddress, 1n)
       ).to.be.revertedWith("LV: shares must sum to 10000 bps");
     });
 
     it("rejects duplicate beneficiaries", async function () {
       const { vault, owner, ben1 } = await loadFixture(deployFixture);
       await expect(
-        vault.connect(owner).createVault([ben1.address, ben1.address], [5000, 5000], owner.address, DAY, DAY, 25, {
-          value: 1,
-        })
+        vault.connect(owner).createVault([ben1.address, ben1.address], [5000, 5000], owner.address, DAY, DAY, 25, ethers.ZeroAddress, 1n)
       ).to.be.revertedWith("LV: duplicate beneficiary");
     });
 
     it("rejects zero deposit", async function () {
       const { vault, owner, ben1 } = await loadFixture(deployFixture);
       await expect(
-        vault.connect(owner).createVault([ben1.address], [BPS], owner.address, DAY, DAY, 25, { value: 0 })
+        vault.connect(owner).createVault([ben1.address], [BPS], owner.address, DAY, DAY, 25, ethers.ZeroAddress, 0n)
       ).to.be.revertedWith("LV: no deposit");
+    });
+
+    it("rejects a native deposit whose msg.value does not match amount", async function () {
+      const { vault, owner, ben1 } = await loadFixture(deployFixture);
+      await expect(
+        vault.connect(owner).createVault([ben1.address], [BPS], owner.address, DAY, DAY, 25, ethers.ZeroAddress, 5n, {
+          value: 6n,
+        })
+      ).to.be.revertedWith("LV: value mismatch");
     });
 
     it("rejects check-in intervals below the 60s floor", async function () {
       const { vault, owner, ben1 } = await loadFixture(deployFixture);
       await expect(
-        vault.connect(owner).createVault([ben1.address], [BPS], owner.address, 59n, DAY, 25, { value: 1 })
+        vault.connect(owner).createVault([ben1.address], [BPS], owner.address, 59n, DAY, 25, ethers.ZeroAddress, 1n)
       ).to.be.revertedWith("LV: interval < 60s");
     });
 
@@ -91,7 +96,7 @@ describe("LegacyVault", function () {
       const { vault, owner, ben1 } = await loadFixture(deployFixture);
       for (const pct of [0n, 100n]) {
         await expect(
-          vault.connect(owner).createVault([ben1.address], [BPS], owner.address, DAY, DAY, pct, { value: 1 })
+          vault.connect(owner).createVault([ben1.address], [BPS], owner.address, DAY, DAY, pct, ethers.ZeroAddress, 1n)
         ).to.be.revertedWith("LV: tranche1 % out of range");
       }
     });
@@ -123,7 +128,7 @@ describe("LegacyVault", function () {
     it("allows the owner to top up while Active", async function () {
       const { vault, vaultId, owner, deposit } = await loadFixture(deployFixture);
       const extra = ethers.parseEther("7");
-      await expect(vault.connect(owner).deposit(vaultId, { value: extra }))
+      await expect(vault.connect(owner).deposit(vaultId, extra, { value: extra }))
         .to.emit(vault, "Deposited")
         .withArgs(vaultId, owner.address, extra);
 
@@ -134,9 +139,9 @@ describe("LegacyVault", function () {
     it("blocks deposits once triggered", async function () {
       const base = await triggeredFixture();
       await base.vault.connect(base.stranger).triggerRelease(base.vaultId);
-      await expect(
-        base.vault.connect(base.owner).deposit(base.vaultId, { value: 1 })
-      ).to.be.revertedWith("LV: not active");
+      await expect(base.vault.connect(base.owner).deposit(base.vaultId, 1n)).to.be.revertedWith(
+        "LV: not active"
+      );
     });
   });
 
@@ -383,6 +388,107 @@ describe("LegacyVault", function () {
         .withArgs(vaultId, guardian.address, stranger.address);
       const v = await vault.getVault(vaultId);
       expect(v.guardian).to.equal(stranger.address);
+    });
+  });
+
+  describe("ERC-20 (USDT) vaults", function () {
+    const U6 = 10n ** 6n; // USDT-style decimals
+    const MINT = 1000n * U6;
+    const DEPOSIT = 500n * U6; // half the mint goes into the vault
+
+    async function usdtFixture() {
+      const [owner, guardian, ben1, ben2, stranger] = await ethers.getSigners();
+
+      const Vault = await ethers.getContractFactory("LegacyVault");
+      const vault = await Vault.deploy();
+      const usdt = await (await ethers.getContractFactory("MockUSDT")).deploy();
+      await usdt.mint(owner.address, MINT);
+
+      await usdt.connect(owner).approve(await vault.getAddress(), DEPOSIT);
+      await vault
+        .connect(owner)
+        .createVault([ben1.address, ben2.address], [6000, 4000], guardian.address, DAY, DAY / 2n, 25, await usdt.getAddress(), DEPOSIT);
+
+      return { vaultId: 1n, vault, usdt, owner, guardian, ben1, ben2, stranger, deposit: DEPOSIT, interval: DAY, disputeWindow: DAY / 2n };
+    }
+
+    it("stores the token and credits the exact amount", async function () {
+      const { vault, usdt, owner, guardian, deposit } = await loadFixture(usdtFixture);
+      const v = await vault.getVault(1);
+      expect(v.owner).to.equal(owner.address);
+      expect(v.guardian).to.equal(guardian.address);
+      expect(v.token).to.equal(await usdt.getAddress());
+      expect(v.balance).to.equal(deposit);
+      expect(await usdt.balanceOf(await vault.getAddress())).to.equal(deposit);
+    });
+
+    it("rejects native value attached to a token-vault creation or top-up", async function () {
+      const base = await loadFixture(usdtFixture);
+      await expect(
+        base.vault
+          .connect(base.owner)
+          .createVault([base.ben1.address], [BPS], base.owner.address, DAY, DAY, 25, await base.usdt.getAddress(), 1n, {
+            value: 1n,
+          })
+      ).to.be.revertedWith("LV: unexpected native value");
+
+      await expect(
+        base.vault.connect(base.owner).deposit(base.vaultId, 1n, { value: 1n })
+      ).to.be.revertedWith("LV: unexpected native value");
+    });
+
+    it("requires approval for deposits and credits the balance", async function () {
+      const base = await loadFixture(usdtFixture);
+      const extra = 10n * U6;
+
+      // No allowance -> transferFrom fails.
+      await expect(base.vault.connect(base.owner).deposit(base.vaultId, extra)).to.be.reverted;
+
+      await base.usdt.connect(base.owner).approve(await base.vault.getAddress(), extra);
+      await expect(base.vault.connect(base.owner).deposit(base.vaultId, extra))
+        .to.emit(base.vault, "Deposited")
+        .withArgs(base.vaultId, base.owner.address, extra);
+
+      const v = await base.vault.getVault(base.vaultId);
+      expect(v.balance).to.equal(base.deposit + extra);
+      expect(await base.usdt.balanceOf(await base.vault.getAddress())).to.equal(base.deposit + extra);
+    });
+
+    it("runs the full trigger -> tranche-1 -> final flow in USDT", async function () {
+      const base = await loadFixture(usdtFixture);
+      const { vault, usdt, vaultId, ben1, ben2, stranger, deposit, interval, disputeWindow } = base;
+
+      await time.increase(interval + 5n);
+      await vault.connect(stranger).triggerRelease(vaultId);
+      await time.increase(disputeWindow + 5n);
+
+      const t1Pool = (deposit * 25n) / 100n; // 125e6
+      const exp1 = (t1Pool * 6000n) / BPS; // 75e6
+      await expect(vault.connect(ben1).claimTranche1(vaultId))
+        .to.emit(vault, "Tranche1Claimed")
+        .withArgs(vaultId, ben1.address, exp1);
+      await vault.connect(ben2).claimTranche1(vaultId);
+
+      expect(await usdt.balanceOf(ben1.address)).to.equal(exp1);
+      expect(await usdt.balanceOf(await vault.getAddress())).to.equal(deposit - t1Pool);
+
+      // Final delay.
+      await time.increase(interval - 20n);
+      await expect(vault.connect(ben1).claimFinal(vaultId)).to.be.revertedWith("LV: final delay not elapsed");
+      await time.increase(30n);
+
+      const rest = deposit - t1Pool; // 375e6
+      const expF1 = (rest * 6000n) / BPS; // 225e6
+      await expect(vault.connect(ben1).claimFinal(vaultId))
+        .to.emit(vault, "FinalClaimed")
+        .withArgs(vaultId, ben1.address, expF1);
+      await vault.connect(ben2).claimFinal(vaultId);
+
+      expect(await usdt.balanceOf(ben1.address)).to.equal(exp1 + expF1);
+      expect(await usdt.balanceOf(await vault.getAddress())).to.equal(0n);
+      const v = await vault.getVault(vaultId);
+      expect(v.status).to.equal(3n); // FullyReleased
+      expect(v.balance).to.equal(0n);
     });
   });
 });

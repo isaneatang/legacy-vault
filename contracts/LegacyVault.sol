@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title LegacyVault
  * @notice On-chain inheritance protocol ("dead man's switch") for BOT Chain.
+ *
+ * Each vault holds exactly ONE asset: either native BOT (`token ==
+ * address(0)`) or a single ERC-20 such as USDT (chosen at creation and
+ * immutable thereafter). All accounting (balance, pools, slices) is in that
+ * asset's smallest unit.
  *
  * State machine per vault:
  *
@@ -49,7 +56,8 @@ contract LegacyVault is ReentrancyGuard {
     struct Vault {
         address owner;
         address guardian; // may be address(0) => only owner can cancel
-        uint256 balance; // native BOT held (accounting mirror)
+        address token; // asset held: address(0) = native BOT, else ERC-20
+        uint256 balance; // asset units held (accounting mirror)
         Beneficiary[] beneficiaries;
         uint16 totalShareBps; // sum of shareBps (may be < 10000 if owner under-allocated)
         uint256 checkInInterval; // seconds
@@ -116,16 +124,60 @@ contract LegacyVault is ReentrancyGuard {
         address guardian,
         uint256 checkInInterval,
         uint256 disputeWindow,
-        uint16 tranche1Percent
+        uint16 tranche1Percent,
+        address asset,
+        uint256 amount
     ) external payable nonReentrant returns (uint256 vaultId) {
-        require(msg.value > 0, "LV: no deposit");
+        require(amount > 0, "LV: no deposit");
         require(beneficiaries.length == shares.length, "LV: length mismatch");
         require(beneficiaries.length > 0, "LV: no beneficiaries");
         require(beneficiaries.length <= MAX_BENEFICIARIES, "LV: too many beneficiaries");
         require(checkInInterval >= MIN_CHECKIN_INTERVAL, "LV: interval < 60s");
         require(tranche1Percent >= 1 && tranche1Percent <= 99, "LV: tranche1 % out of range");
 
-        uint16 total;
+        // Validate everything before any external call, so a revert can never
+        // strand funds that were already pulled in.
+        uint16 total = _validateShares(beneficiaries, shares);
+        uint256 credited = _fund(asset, amount);
+
+        vaultId = _nextVaultId++;
+        Vault storage v = _vaults[vaultId];
+        v.owner = msg.sender;
+        v.guardian = guardian;
+        v.token = asset;
+        v.checkInInterval = checkInInterval;
+        v.lastCheckIn = block.timestamp;
+        v.disputeWindow = disputeWindow;
+        v.tranche1Percent = tranche1Percent;
+        v.status = VaultStatus.Active;
+        v.totalShareBps = total;
+
+        _storeBeneficiaries(vaultId, v, beneficiaries, shares);
+        v.balance = credited;
+        _vaultIdsByOwner[msg.sender].push(vaultId);
+
+        emit VaultCreated(vaultId, msg.sender, guardian, credited, checkInInterval, disputeWindow, tranche1Percent);
+    }
+
+    /// @dev Writes the beneficiary list and its membership indexes.
+    function _storeBeneficiaries(
+        uint256 vaultId,
+        Vault storage v,
+        address[] calldata wallets,
+        uint16[] calldata shares
+    ) private {
+        for (uint256 i = 0; i < wallets.length; ++i) {
+            v.beneficiaries.push(Beneficiary({wallet: wallets[i], shareBps: shares[i]}));
+            _isBeneficiaryOf[vaultId][wallets[i]] = true;
+            _vaultIdsByBeneficiary[wallets[i]].push(vaultId);
+        }
+    }
+
+    /// @dev Validates the beneficiary list; returns the share sum in bps.
+    function _validateShares(
+        address[] calldata beneficiaries,
+        uint16[] calldata shares
+    ) private pure returns (uint16 total) {
         for (uint256 i = 0; i < beneficiaries.length; ++i) {
             require(beneficiaries[i] != address(0), "LV: zero beneficiary");
             require(shares[i] > 0, "LV: zero share");
@@ -137,36 +189,37 @@ contract LegacyVault is ReentrancyGuard {
             }
         }
         require(total == BPS_DENOMINATOR, "LV: shares must sum to 10000 bps");
-
-        vaultId = _nextVaultId++;
-        Vault storage v = _vaults[vaultId];
-        v.owner = msg.sender;
-        v.guardian = guardian;
-        v.checkInInterval = checkInInterval;
-        v.lastCheckIn = block.timestamp;
-        v.disputeWindow = disputeWindow;
-        v.tranche1Percent = tranche1Percent;
-        v.status = VaultStatus.Active;
-        v.totalShareBps = total;
-
-        for (uint256 i = 0; i < beneficiaries.length; ++i) {
-            v.beneficiaries.push(Beneficiary({wallet: beneficiaries[i], shareBps: shares[i]}));
-            _isBeneficiaryOf[vaultId][beneficiaries[i]] = true;
-            _vaultIdsByBeneficiary[beneficiaries[i]].push(vaultId);
-        }
-        v.balance = msg.value;
-        _vaultIdsByOwner[msg.sender].push(vaultId);
-
-        emit VaultCreated(vaultId, msg.sender, guardian, msg.value, checkInInterval, disputeWindow, tranche1Percent);
     }
 
-    /// @notice Top up an existing vault. Only while Active.
-    function deposit(uint256 vaultId) external payable nonReentrant {
+    /// @dev Moves the initial funding into the contract; returns the units
+    /// actually received (native BOT or ERC-20).
+    function _fund(address asset, uint256 amount) private returns (uint256) {
+        if (asset == address(0)) {
+            require(msg.value == amount, "LV: value mismatch");
+            return msg.value; // native stays in the contract
+        }
+        require(msg.value == 0, "LV: unexpected native value");
+        return _pullToken(IERC20(asset), msg.sender, amount);
+    }
+
+    /// @notice Top up an existing vault. Only while Active. `amount` is in
+    /// vault-asset units: for a token vault it is pulled via transferFrom
+    /// (approve first); for a native vault it must equal msg.value.
+    function deposit(uint256 vaultId, uint256 amount) external payable nonReentrant {
         Vault storage v = _requireOwned(vaultId);
         require(v.status == VaultStatus.Active, "LV: not active");
-        require(msg.value > 0, "LV: zero deposit");
-        v.balance += msg.value;
-        emit Deposited(vaultId, msg.sender, msg.value);
+        require(amount > 0, "LV: zero deposit");
+
+        uint256 credited;
+        if (v.token == address(0)) {
+            require(msg.value == amount, "LV: value mismatch");
+            credited = msg.value;
+        } else {
+            require(msg.value == 0, "LV: unexpected native value");
+            credited = _pullToken(IERC20(v.token), msg.sender, amount);
+        }
+        v.balance += credited;
+        emit Deposited(vaultId, msg.sender, credited);
     }
 
     // ------------------------------------------------------------------
@@ -363,8 +416,7 @@ contract LegacyVault is ReentrancyGuard {
         v.t1PoolRemaining -= amount;
         v.balance -= amount;
 
-        (bool ok, ) = msg.sender.call{value: amount}("");
-        require(ok, "LV: t1 transfer failed");
+        _payout(v, msg.sender, amount);
         emit Tranche1Claimed(vaultId, msg.sender, amount);
     }
 
@@ -402,8 +454,7 @@ contract LegacyVault is ReentrancyGuard {
         v.finalPoolRemaining -= amount;
         v.balance -= amount;
 
-        (bool ok, ) = msg.sender.call{value: amount}("");
-        require(ok, "LV: final transfer failed");
+        _payout(v, msg.sender, amount);
         emit FinalClaimed(vaultId, msg.sender, amount);
     }
 
@@ -423,6 +474,7 @@ contract LegacyVault is ReentrancyGuard {
         returns (
             address owner,
             address guardian,
+            address token,
             uint256 balance,
             uint256 checkInInterval,
             uint256 lastCheckIn,
@@ -437,6 +489,7 @@ contract LegacyVault is ReentrancyGuard {
         return (
             v.owner,
             v.guardian,
+            v.token,
             v.balance,
             v.checkInInterval,
             v.lastCheckIn,
@@ -554,6 +607,26 @@ contract LegacyVault is ReentrancyGuard {
     // ------------------------------------------------------------------
     // Internals
     // ------------------------------------------------------------------
+
+    /// @dev Pull `amount` of an ERC-20 from `from`. Credited amount is
+    /// measured by balance delta so fee-on-transfer tokens cannot corrupt
+    /// the accounting mirror.
+    function _pullToken(IERC20 token, address from, uint256 amount) private returns (uint256 credited) {
+        uint256 before = token.balanceOf(address(this));
+        SafeERC20.safeTransferFrom(token, from, address(this), amount);
+        credited = token.balanceOf(address(this)) - before;
+        require(credited > 0, "LV: token transfer failed");
+    }
+
+    /// @dev Send a payout in the vault's asset. Effects are already applied.
+    function _payout(Vault storage v, address to, uint256 amount) private {
+        if (v.token == address(0)) {
+            (bool ok, ) = to.call{value: amount}("");
+            require(ok, "LV: transfer failed");
+        } else {
+            SafeERC20.safeTransfer(IERC20(v.token), to, amount);
+        }
+    }
 
     /// @dev Payout slice for one beneficiary: proportional to their share
     /// relative to the live total (not to 10000), so under-allocated lists
