@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Legacy Vault — Vault Detail</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/theme.css" />
+</head>
+<body>
+  <header class="site-header" id="site-header"></header>
+
+  <main class="page">
+    <h1 class="page-title">Vault <span class="accent" id="title-id">#…</span></h1>
+    <p class="page-sub" id="owner-line">Loading…</p>
+
+    <div class="grid-cards">
+      <div class="panel glow">
+        <h3>State</h3>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+          <div>
+            <div class="balance-line"><span id="balance">—</span> <small>BOT</small></div>
+            <span class="chip st-active" id="status-chip">—</span>
+          </div>
+          <div style="text-align:right">
+            <div class="countdown-label" id="cd-label">—</div>
+            <div class="countdown big-countdown" id="countdown">—</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;" id="action-row"></div>
+        <p class="notice danger" id="triggered-note" hidden style="margin-top:14px"></p>
+      </div>
+
+      <div class="panel">
+        <h3>Terms</h3>
+        <dl class="kv">
+          <dt>Owner</dt><dd id="kv-owner">—</dd>
+          <dt>Guardian</dt><dd id="kv-guardian">—</dd>
+          <dt>Check-in interval</dt><dd id="kv-interval">—</dd>
+          <dt>Last check-in</dt><dd id="kv-lastcheckin">—</dd>
+          <dt>Dispute window</dt><dd id="kv-dispute">—</dd>
+          <dt>Tranche 1</dt><dd id="kv-t1">—</dd>
+          <dt>Final release delay</dt><dd id="kv-finaldelay">—</dd>
+        </dl>
+      </div>
+    </div>
+
+    <!-- owner management -->
+    <section id="manage-zone" hidden>
+      <h2 class="section-title">Manage (Active only)</h2>
+
+      <div class="grid-cards">
+        <div class="panel">
+          <h3>Top up</h3>
+          <form id="deposit-form">
+            <div class="field">
+              <label>Amount (BOT)</label>
+              <input type="text" id="deposit-amt" inputmode="decimal" placeholder="1.0" />
+            </div>
+            <button class="btn primary wide">Deposit</button>
+          </form>
+        </div>
+
+        <div class="panel">
+          <h3>Guardian</h3>
+          <form id="guardian-form">
+            <div class="field">
+              <label>New guardian address</label>
+              <input type="text" id="new-guardian" placeholder="0x…" />
+            </div>
+            <button class="btn wide">Change guardian</button>
+          </form>
+        </div>
+
+        <div class="panel" style="grid-column: 1 / -1">
+          <h3>Beneficiaries</h3>
+          <div id="benef-list"></div>
+          <form id="shares-form" style="margin-top:12px">
+            <div id="edit-rows"></div>
+            <button type="button" class="btn small" id="add-edit-row">+ Add row</button>
+            <button type="submit" class="btn primary small" style="margin-left:8px">Save beneficiary set</button>
+            <span class="sum-indicator" id="edit-sum" style="margin-left:10px"></span>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <h2 class="section-title">History</h2>
+    <div class="panel"><ul class="feed" id="feed"></ul></div>
+
+    <div class="footer-note"></div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+  <script type="module">
+    import {
+      state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract,
+      sendTx, toast, statusName, chipClass, ticker, fmtAmt, shortAddr, cleanErr, explorerLink,
+    } from "./js/app.js";
+    import { renderHeader } from "./js/layout.js";
+    import { fmtDurationLong, fmtTimestamp } from "./js/helpers.js";
+
+    renderHeader();
+    wireHeader(null);
+
+    const params = new URLSearchParams(location.search);
+    const vaultId = params.get("vault");
+    if (!vaultId) location.href = "vaults.html";
+    document.getElementById("title-id").textContent = `#${vaultId}`;
+
+    let currentVault = null;
+    const isOwner = () => state.address && currentVault && state.address.toLowerCase() === currentVault.owner.toLowerCase();
+
+    async function load() {
+      const c = readOnlyContract();
+      try {
+        currentVault = await c.getVault(vaultId);
+      } catch {
+        document.getElementById("owner-line").textContent = "This vault does not exist (or the contract address in config.js points elsewhere).";
+        return;
+      }
+      const v = currentVault;
+      const st = Number(v.status);
+
+      document.getElementById("owner-line").innerHTML =
+        `Owned by <b>${v.owner === ethers.ZeroAddress ? "—" : v.owner}</b>` +
+        (state.address && isOwner() ? " — that's you." : "");
+
+      document.getElementById("balance").textContent = fmtAmt(v.balance);
+      const chip = document.getElementById("status-chip");
+      chip.textContent = statusName(st);
+      chip.className = `chip ${chipClass(st)}${st === 1 ? " st-danger" : ""}`;
+
+      document.getElementById("kv-owner").textContent = v.owner === ethers.ZeroAddress ? "—" : shortAddr(v.owner, 6);
+      const gEl = document.getElementById("kv-guardian");
+      if (v.guardian === ethers.ZeroAddress) { gEl.textContent = "none"; }
+      else {
+        gEl.innerHTML = "";
+        gEl.append(shortAddr(v.guardian, 6));
+      }
+      document.getElementById("kv-interval").textContent = fmtDurationLong(Number(v.checkInInterval));
+      document.getElementById("kv-lastcheckin").textContent = fmtTimestamp(v.lastCheckIn);
+      document.getElementById("kv-dispute").textContent =
+        Number(v.disputeWindow) ? fmtDurationLong(Number(v.disputeWindow)) : "none (instant)";
+      document.getElementById("kv-t1").textContent = `${Number(v.tranche1Percent)}% released first`;
+      document.getElementById("kv-finaldelay").textContent = fmtDurationLong(Number(v.checkInInterval));
+
+      // countdown + contextual note
+      const cd = document.getElementById("countdown");
+      const label = document.getElementById("cd-label");
+      const note = document.getElementById("triggered-note");
+      note.hidden = true;
+
+      ticker(cd, (now) => {
+        if (st === 0) {
+          const remain = Number(BigInt(v.lastCheckIn) + BigInt(v.checkInInterval) - BigInt(now));
+          label.textContent = "check-in due in";
+          if (remain > 0) { cd.textContent = fmtDuration(remain); cd.className = "countdown big-countdown" + (remain < 86400 ? " warn" : ""); }
+          else {
+            cd.textContent = fmtDuration(-remain) + " overdue";
+            cd.className = "countdown big-countdown overdue";
+          }
+        } else if (st === 1) {
+          const remain = Number(BigInt(v.triggeredAt) + BigInt(v.disputeWindow) - BigInt(now));
+          label.textContent = remain > 0 ? "dispute window closes in" : "";
+          if (remain > 0) { cd.textContent = fmtDuration(remain); cd.className = "countdown big-countdown"; }
+          else { label.textContent = ""; cd.textContent = "tranche 1 claimable"; cd.className = "countdown big-countdown"; }
+        } else if (st === 2) {
+          const remain = Number(BigInt(v.tranche1ClaimedAt) + BigInt(v.checkInInterval) - BigInt(now));
+          label.textContent = remain > 0 ? "final release in" : "";
+          if (remain > 0) { cd.textContent = fmtDuration(remain); cd.className = "countdown big-countdown warn"; }
+          else { label.textContent = ""; cd.textContent = "final claim open"; cd.className = "countdown big-countdown"; }
+        } else {
+          label.textContent = "status";
+          cd.textContent = "settled";
+          cd.className = "countdown big-countdown";
+        }
+      });
+
+      if (st === 1) {
+        note.hidden = false;
+        note.textContent = "This vault has been triggered. The owner or guardian can still cancel before the dispute window closes.";
+      }
+
+      renderActions();
+      renderManageZone(c);
+      renderBeneficiaries(c).catch(console.error);
+      loadFeed(c).catch(console.error);
+    }
+
+    function renderActions() {
+      const v = currentVault;
+      const st = Number(v.status);
+      const row = document.getElementById("action-row");
+      row.innerHTML = "";
+
+      const add = (html) => row.insertAdjacentHTML("beforeend", html);
+
+      if (isOwner() && (st === 0 || st === 2)) {
+        add(`<button class="btn primary small" data-act="checkin">Check In</button>`);
+      }
+      if (st === 0 && !isOwner()) {
+        add(`<button class="btn primary small" data-act="checkin" disabled title="Only the owner can check in">Check In</button>`);
+      }
+      if (st === 0) {
+        const overdue = Date.now() / 1000 >= Number(BigInt(v.lastCheckIn) + BigInt(v.checkInInterval));
+        add(`<button class="btn danger small" data-act="trigger" ${overdue ? "" : "disabled"}>Trigger Release</button>`);
+      }
+      if (st === 1) {
+        const canCancel = state.address &&
+          (state.address.toLowerCase() === v.owner.toLowerCase() ||
+           (v.guardian !== ethers.ZeroAddress && state.address.toLowerCase() === v.guardian.toLowerCase()));
+        add(`<button class="btn small" data-act="cancel" ${canCancel ? "" : "disabled"}>Cancel Release</button>`);
+      }
+      if (st >= 2) {
+        add(`<a class="btn small" href="claims.html">Go to claims ↗</a>`);
+      }
+      add(`<a class="btn small" href="watch.html?vault=${vaultId}">Public view</a>`);
+
+      row.querySelectorAll("[data-act]").forEach((b) =>
+        b.addEventListener("click", () => doAction(b.dataset.act))
+      );
+    }
+
+    async function doAction(act) {
+      try {
+        const c = await signerContract();
+        if (act === "checkin") {
+          await sendTx(`Check-in #${vaultId}`, c.checkIn(vaultId));
+        } else if (act === "trigger") {
+          await sendTx(`Trigger #${vaultId}`, c.triggerRelease(vaultId));
+        } else if (act === "cancel") {
+          await sendTx(`Cancel release #${vaultId}`, c.cancelRelease(vaultId));
+        }
+        load();
+      } catch (err) {
+        console.error(cleanErr(err));
+      }
+    }
+
+    function renderManageZone() {
+      const zone = document.getElementById("manage-zone");
+      const editable = isOwner() && Number(currentVault.status) === 0;
+      zone.hidden = !(isOwner() || Number(currentVault.status) !== 0);
+      zone.querySelectorAll("button, input").forEach((el) => (el.disabled = !editable));
+    }
+
+    async function renderBeneficiaries(c) {
+      const [wallets, shares, t1Flags, fFlags] = await c.getBeneficiaries(vaultId);
+      const list = document.getElementById("benef-list");
+      const editRows = document.getElementById("edit-rows");
+      list.innerHTML = "";
+      editRows.innerHTML = "";
+
+      for (let i = 0; i < wallets.length; i++) {
+        const claimed = t1Flags[i] || fFlags[i];
+        list.insertAdjacentHTML(
+          "beforeend",
+          `<div class="benef-row" style="grid-template-columns:1fr 130px auto">
+             <span>${shortAddr(wallets[i], 8)}</span>
+             <span>${Number(shares[i]) / 100}%</span>
+             <span class="${claimed ? "" : ""}" style="color:${claimed ? "var(--green-glow)" : "var(--ash-dim)"}">${claimed ? "paid ✓" : "awaiting"}</span>
+           </div>`
+        );
+        if (isOwner()) addEditRow(wallets[i], Number(shares[i]) / 100);
+      }
+
+      updateEditSum();
+    }
+
+    function addEditRow(addr = "", pct = "") {
+      const row = document.createElement("div");
+      row.className = "benef-row";
+      row.innerHTML = `
+        <input type="text" class="e-addr" placeholder="0x…" value="${addr}" />
+        <input type="number" class="e-pct" placeholder="%" min="0" step="0.01" value="${pct}" />
+        <button type="button" class="btn danger small e-rm">✕</button>`;
+      row.querySelector(".e-pct").addEventListener("input", updateEditSum);
+      row.querySelector(".e-rm").addEventListener("click", () => { row.remove(); updateEditSum(); });
+      document.getElementById("edit-rows").appendChild(row);
+    }
+
+    function readEditShares() {
+      let sum = 0;
+      document.querySelectorAll("#edit-rows .benef-row").forEach((row) => {
+        sum += parseFloat(row.querySelector(".e-pct").value) || 0;
+      });
+      return sum;
+    }
+    function updateEditSum() {
+      const sum = readEditShares();
+      const el = document.getElementById("edit-sum");
+      el.textContent = `${Math.round(sum * 100) / 100}% of 100%`;
+      el.className = `sum-indicator ${Math.abs(sum - 100) < 1e-9 ? "sum-ok" : "sum-bad"}`;
+    }
+    document.getElementById("add-edit-row").addEventListener("click", () => addEditRow());
+
+    document.getElementById("deposit-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const amt = document.getElementById("deposit-amt").value;
+      if (!(parseFloat(amt) > 0)) return toast("Enter an amount.", true);
+      const c = await signerContract();
+      await sendTx("Deposit", c.deposit(vaultId, { value: ethers.parseEther(amt) }));
+      load();
+    });
+
+    document.getElementById("guardian-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const g = document.getElementById("new-guardian").value.trim();
+      if (!/^0x[0-9a-fA-F]{40}$/.test(g)) return toast("Invalid guardian address.", true);
+      const c = await signerContract();
+      await sendTx("Guardian change", c.changeGuardian(vaultId, g));
+      load();
+    });
+
+    document.getElementById("shares-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const wallets = [];
+      const bps = [];
+      for (const row of document.querySelectorAll("#edit-rows .benef-row")) {
+        const a = row.querySelector(".e-addr").value.trim();
+        const p = parseFloat(row.querySelector(".e-pct").value);
+        if (!/^0x[0-9a-fA-F]{40}$/.test(a)) return toast("Invalid beneficiary address.", true);
+        if (!p || p <= 0) return toast("Shares must be above zero.", true);
+        wallets.push(a);
+        bps.push(BigInt(Math.round(p * 100)));
+      }
+      const total = bps.reduce((x, y) => x + y, 0n);
+      if (total > 10000n) return toast("Total allocation exceeds 100%.", true);
+      const c = await signerContract();
+      await sendTx("Beneficiary update", c.updateShares(vaultId, wallets, bps));
+      load();
+    });
+
+    async function loadFeed(c) {
+      const evs = [
+        "VaultCreated", "CheckedIn", "Deposited", "BeneficiaryUpdated", "GuardianChanged",
+        "ReleaseTriggered", "ReleaseCancelled", "Tranche1Claimed", "FinalClaimed",
+      ];
+      const items = [];
+
+      for (const name of evs) {
+        try {
+          const logs = await c.queryFilter(c.filters[name](vaultId), 0, "latest");
+          for (const log of logs) {
+            const p = c.interface.parseLog(log);
+            items.push({ name, args: p.args, block: log.blockNumber });
+          }
+        } catch {}
+      }
+
+      // timestamp resolution (best-effort)
+      const blockCache = {};
+      for (const it of items) {
+        if (blockCache[it.block] === undefined) {
+          try { blockCache[it.block] = (await c.provider.getBlock(it.block)).timestamp; }
+          catch { blockCache[it.block] = null; }
+        }
+        it.ts = blockCache[it.block];
+      }
+      items.sort((a, b) => a.block - b.block);
+
+      const feed = document.getElementById("feed");
+      feed.innerHTML = "";
+      if (!items.length) {
+        feed.innerHTML = `<li><span class="what" style="color:var(--ash-dim)">No recorded activity yet.</span></li>`;
+        return;
+      }
+      for (const it of items) {
+        feed.appendChild(renderFeedItem(it));
+      }
+    }
+
+    function renderFeedItem(it) {
+      const { name, args, ts } = it;
+      const li = document.createElement("li");
+      let what = name;
+      if (name === "CheckedIn") what = `<b>${shortAddr(args.owner)}</b> checked in — deadline reset.`;
+      else if (name === "Deposited") what = `<b>${shortAddr(args.owner)}</b> deposited <b>${fmtAmt(args.amount)} BOT</b>.`;
+      else if (name === "VaultCreated") what = `Vault created by <b>${shortAddr(args.owner)}</b> with <b>${fmtAmt(args.amount)} BOT</b>.`;
+      else if (name === "ReleaseTriggered") what = `Release triggered — check-in deadline passed.`;
+      else if (name === "ReleaseCancelled") what = `<b>${shortAddr(args.by)}</b> cancelled the triggered release.`;
+      else if (name === "Tranche1Claimed") what = `<b>${shortAddr(args.beneficiary)}</b> claimed tranche 1: <b>${fmtAmt(args.amount)} BOT</b>.`;
+      else if (name === "FinalClaimed") what = `<b>${shortAddr(args.beneficiary)}</b> claimed their final share: <b>${fmtAmt(args.amount)} BOT</b>.`;
+      else if (name === "BeneficiaryUpdated") what = `Beneficiary set rewritten by the owner.`;
+      else if (name === "GuardianChanged") what = `Guardian changed to <b>${shortAddr(args.newGuardian)}</b>.`;
+
+      const whenHtml = ts ? fmtTimestamp(ts) : `block #${it.block}`;
+      li.innerHTML = `
+        <svg class="feed-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.5 2.3 7.1-6.3-4.6L5.7 21 8 13.9 2 9.4h7.6z"/></svg>
+        <span class="when">${whenHtml}</span>
+        <span class="what">${what}</span>`;
+      return li;
+    }
+
+    initWallet().then(load).catch(console.error);
+    onWalletChange(() => {
+      if (currentVault) load().catch(console.error);
+    });
+  </script>
+</body>
+</html>

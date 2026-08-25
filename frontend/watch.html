@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Legacy Vault — Public Watch</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/theme.css" />
+</head>
+<body>
+  <header class="site-header" id="site-header"></header>
+
+  <main class="page">
+    <h1 class="page-title">Vault <span class="accent" id="title-id">Watch</span></h1>
+    <p class="page-sub">
+      Read-only public view — no wallet required. Every number here comes
+      straight from the chain.
+    </p>
+
+    <form id="jump-form" style="display:flex; gap:10px; max-width:420px; margin-bottom:28px;">
+      <input type="text" id="jump-id" placeholder="vault id…" style="flex:1" />
+      <button class="btn small">Watch</button>
+    </form>
+
+    <div class="grid-cards">
+      <div class="panel glow">
+        <h3>Live state</h3>
+        <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+          <div>
+            <div class="balance-line"><span id="balance">—</span> <small>BOT</small></div>
+            <span class="chip st-active" id="status-chip">—</span>
+          </div>
+          <div style="text-align:right">
+            <div class="countdown-label" id="cd-label">—</div>
+            <div class="countdown big-countdown" id="countdown">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Terms</h3>
+        <dl class="kv">
+          <dt>Vault</dt><dd id="kv-id">—</dd>
+          <dt>Owner</dt><dd id="kv-owner">—</dd>
+          <dt>Check-in interval</dt><dd id="kv-interval">—</dd>
+          <dt>Last check-in</dt><dd id="kv-lastcheckin">—</dd>
+          <dt>Tranche 1</dt><dd id="kv-t1">—</dd>
+        </dl>
+      </div>
+    </div>
+
+    <h2 class="section-title">Beneficiaries</h2>
+    <div class="panel"><ul class="feed" id="benef-feed"></ul></div>
+
+    <div class="footer-note"></div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+  <script type="module">
+    import {
+      initWallet, wireHeader, readOnlyContract, statusName, chipClass,
+      ticker, fmtAmt, shortAddr,
+    } from "./js/app.js";
+    import { renderHeader } from "./js/layout.js";
+    import { fmtDurationLong, fmtTimestamp } from "./js/helpers.js";
+
+    renderHeader();
+    wireHeader(null);
+
+    let vaultId = new URLSearchParams(location.search).get("vault");
+
+    document.getElementById("jump-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const id = document.getElementById("jump-id").value.trim();
+      if (/^\d+$/.test(id)) location.href = `watch.html?vault=${id}`;
+    });
+
+    async function load() {
+      if (!vaultId) {
+        document.getElementById("title-id").textContent = "Watch";
+        return;
+      }
+      document.getElementById("title-id").textContent = `#${vaultId}`;
+      document.getElementById("kv-id").textContent = `#${vaultId}`;
+
+      const c = readOnlyContract();
+      let v;
+      try {
+        v = await c.getVault(vaultId);
+      } catch {
+        document.querySelector(".grid-cards").innerHTML =
+          `<div class="empty-state"><p>No such vault on this chain.</p></div>`;
+        return;
+      }
+      const st = Number(v.status);
+
+      document.getElementById("kv-owner").textContent = v.owner === ethers.ZeroAddress ? "—" : v.owner;
+      document.getElementById("kv-interval").textContent = fmtDurationLong(Number(v.checkInInterval));
+      document.getElementById("kv-lastcheckin").textContent = fmtTimestamp(v.lastCheckIn);
+      document.getElementById("kv-t1").textContent = `${Number(v.tranche1Percent)}%`;
+
+      document.getElementById("balance").textContent = fmtAmt(v.balance);
+      const chip = document.getElementById("status-chip");
+      chip.textContent = statusName(st);
+      chip.className = `chip ${chipClass(st)}${st === 1 ? " st-danger" : ""}`;
+
+      const cd = document.getElementById("countdown");
+      const label = document.getElementById("cd-label");
+      ticker(cd, (now) => {
+        if (st === 0) {
+          const remain = Number(BigInt(v.lastCheckIn) + BigInt(v.checkInInterval) - BigInt(now));
+          label.textContent = "check-in due in";
+          cd.textContent = remain > 0 ? fmtDurationLong(remain) : "overdue";
+          cd.className = "countdown big-countdown" + (remain > 0 && remain < 86400 ? " warn" : remain <= 0 ? " overdue" : "");
+        } else if (st === 1) {
+          const remain = Number(BigInt(v.triggeredAt) + BigInt(v.disputeWindow) - BigInt(now));
+          label.textContent = "dispute window";
+          cd.textContent = remain > 0 ? fmtDuration(remain) : "expired";
+        } else if (st === 2) {
+          const remain = Number(BigInt(v.tranche1ClaimedAt) + BigInt(v.checkInInterval) - BigInt(now));
+          label.textContent = "final release in";
+          cd.textContent = remain > 0 ? fmtDuration(remain) : "open";
+        } else {
+          label.textContent = "status";
+          cd.textContent = "settled";
+        }
+      });
+
+      // beneficiaries
+      try {
+        const [wallets, shares] = await c.getBeneficiaries(vaultId);
+        const feed = document.getElementById("benef-feed");
+        feed.innerHTML = "";
+        for (let i = 0; i < wallets.length; i++) {
+          feed.insertAdjacentHTML(
+            "beforeend",
+            `<li><svg class="feed-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+             <span class="when">${shortAddr(wallets[i], 10)}</span><span class="what">inherits <b>${Number(shares[i]) / 100}%</b></span></li>`
+          );
+        }
+      } catch {}
+    }
+
+    initWallet().then(load).catch(console.error);
+  </script>
+</body>
+</html>

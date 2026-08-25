@@ -1,0 +1,229 @@
+==========================================================
+ LEGACY VAULT — TESTING & DEPLOYMENT GUIDE
+ Dead man's switch for BOT Chain | legacy-vault@1.0.0
+==========================================================
+
+PREREQUISITES
+-------------
+- Node.js >= 18 installed
+- MetaMask (or Rabby) browser wallet extension
+- A terminal in the project root: /home/isane/Documents/DONCODER/DeadBot
+
+
+==========================================================
+STEP 1 — INSTALL DEPENDENCIES (skip if already done)
+==========================================================
+
+    npm install
+
+
+==========================================================
+STEP 2 — RUN THE TEST SUITE (already verified: 30/30 PASS)
+==========================================================
+
+Run all 30 Hardhat tests (check-in cycle, trigger/cancel,
+full release flow, revival rule R1, share validation...):
+
+    npx hardhat test
+
+Optional extras:
+
+    npm run test:gas        # same tests + gas report per function
+    npm run coverage        # solidity coverage report
+
+Expected output ends with:  "30 passing"
+(If you see warnings about DEPLOYER_PRIVATE_KEY here, ignore
+them — tests run on the local in-memory network and need no key.)
+
+
+==========================================================
+STEP 3 — LOCAL DEMO (free, no real funds)
+==========================================================
+
+Terminal 1 — start the local chain:
+
+    npm run node
+
+Terminal 2 — deploy to it:
+
+    npm run deploy:local
+
+This prints the vault contract address AND saves it to:
+    deployments/localhost.json
+
+Copy that address into the frontend config:
+    frontend/js/config.js  ->  VAULT_ADDRESS: "0x<your address>"
+
+Terminal 2 — serve the frontend (keep it running):
+
+    cd frontend
+    python3 -m http.server 8080
+
+Browser setup (MetaMask):
+1. Open http://localhost:8080  ->  you land on the HOME page
+   ("How it works"). Click "Open App" to reach My Vaults.
+2. In MetaMask: Accounts > Add network > Add manually:
+       Network name : Hardhat Local
+       RPC URL      : http://127.0.0.1:8545
+       Chain ID     : 31337
+       Currency     : ETH (test token)
+3. Import a funded test account — the local node prints ~20
+   private keys at startup. Use this one (10000 ETH):
+       0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+   NEVER use this key anywhere except your own local node.
+
+WALLET CONNECT NOTES:
+- Clicking "Connect Wallet" opens a picker listing every wallet
+  extension you have installed (MetaMask, Rabby, Coinbase, ...).
+- On phones, use the deep links in the picker to open the site
+  inside your wallet's browser.
+- If you're on the wrong network, the app prompts to switch —
+  and if BOT Chain isn't in your wallet yet it offers to ADD it
+  automatically (chain 968 testnet params come from config.js).
+- Connected chip click -> menu with copy-address, balance,
+  explorer link and Disconnect.
+
+
+==========================================================
+STEP 4 — 5-MINUTE END-TO-END DEMO SCRIPT
+==========================================================
+
+With the local chain + frontend running:
+
+1. CREATE VAULT page
+   - Deposit: e.g. 10 ETH
+   - Beneficiary 1: second imported account (50%), add row for
+     Beneficiary 2: third account (50%)
+   - Guardian: any spare address
+   - Check-in interval: 2 MINUTES
+   - Dispute window: 60 SECONDS
+   - Tranche 1 slider: 25%
+   - Confirm tx in wallet.
+
+2. MY VAULTS page -> click "Check In" once (resets timer).
+
+3. WAIT ~2 min without checking in.
+
+4. Open CLAIMS page from the BENEFICIARY account ->
+   "Trigger release" (or anyone can trigger it).
+
+5. Do NOT cancel -> let the 60s dispute window lapse ->
+   claim tranche 1 (25% split pro-rata).
+
+6. Wait another full interval (2 min) -> claim FINAL ->
+   remaining 75% paid out. Vault = FullyReleased.
+
+EXTRA THINGS TO TRY:
+   - Cancel path: trigger again, then cancel as owner/guardian
+     inside the dispute window -> vault returns to Active.
+   - Revival rule R1: after tranche-1 is claimed, check in as
+     owner -> vault revives to Active.
+   - Watch page: open watch.html?vault=1 in a private window
+     (no wallet needed) to see the spectator view.
+
+
+==========================================================
+STEP 5 — DEPLOY TO BOT CHAIN TESTNET (real tBOT)
+==========================================================
+
+1. Configure environment:
+
+       cp .env.example .env
+
+   Edit .env and fill in:
+       DEPLOYER_PRIVATE_KEY=<a BURNER/testnet-only private key>
+
+   !! NEVER use a key holding mainnet funds. !!
+
+2. Fund the address: get free tBOT from the faucet:
+       https://faucet.botchain.ai/basic
+   Paste your address there, request tokens.
+
+3. Deploy:
+
+       npm run deploy:testnet
+
+4. Note the printed address (also saved to deployments/botTestnet.json).
+
+5. Verify the source code on the explorer:
+
+       npx hardhat verify --network botTestnet <DEPLOYED_ADDRESS>
+
+6. Update the frontend:
+
+       frontend/js/config.js ->
+         VAULT_ADDRESS_BY_CHAIN: {
+           "968": "0x<your testnet address>",
+         }
+
+7. Serve the frontend again (python3 -m http.server 8080).
+   When you connect, the app detects you're on BOT Chain
+   Testnet automatically; if not, it offers a one-click switch,
+   and adds the network to your wallet if it's missing:
+       Chain ID : 968
+       RPC      : https://rpc.bohr.life
+   Repeat the demo with REAL small amounts / short intervals.
+
+
+==========================================================
+STEP 6 — SWITCHING TO MAINNET (real money — read twice)
+==========================================================
+
+Checklist BEFORE running anything:
+
+[ ] Contract tested locally AND on testnet end-to-end
+[ ] Ideally audited / at minimum reviewed by another dev
+[ ] Deployer key belongs to a dedicated hardware or burner
+    wallet, loaded via .env only (never committed!)
+[ ] You understand the contract is IMMUTABLE after deployment:
+    no upgrade path, no admin key, no rescue function.
+
+When ready:
+
+1. Put the MAINNET deployer key in .env:
+       DEPLOYER_PRIVATE_KEY=<mainnet key>
+
+2. Deploy:
+
+       npm run deploy:mainnet
+
+3. Verify:
+
+       npx hardhat verify --network botMainnet <DEPLOYED_ADDRESS>
+
+4. Update frontend/js/config.js:
+
+         VAULT_ADDRESS_BY_CHAIN: {
+           "677": "0x<mainnet address>",
+         }
+
+Network reference:
+    Mainnet : chainId 677 | rpc.botchain.ai     | scan.botchain.ai
+    Testnet : chainId 968 | rpc.bohr.life       | faucet.botchain.ai/basic
+
+That's the whole point of the two-network Hardhat config:
+switching is always just "--network botTestnet" <-> "--network botMainnet".
+
+
+==========================================================
+TROUBLESHOOTING
+==========================================================
+
+- "nonce too high" on localhost after restarting the node:
+    MetaMask > Settings > Advanced > Clear activity tab data,
+    or re-import the test account.
+
+- Frontend shows wrong contract data:
+    you forgot to update VAULT_ADDRESS in frontend/js/config.js
+    after redeploying (every `npm run node` restart gives new
+    addresses).
+
+- "insufficient funds" on testnet deploy:
+    grab more tBOT from https://faucet.botchain.ai/basic
+
+- Wallet won't connect on localhost:
+    make sure the site is opened over http://localhost:8080
+    (NOT file://) and MetaMask has the Hardhat network added.
+
+- Tests fail after edits:
+    npx hardhat clean && npx hardhat compile && npx hardhat test

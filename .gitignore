@@ -1,0 +1,12 @@
+node_modules/
+cache/
+artifacts/
+coverage/
+coverage.json
+typechain-types/
+.env
+.env.*
+frontend/js/config.local.js
+deployments/local.json
+*.log
+.DS_Store

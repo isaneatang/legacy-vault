@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Legacy Vault — My Vaults</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/theme.css" />
+</head>
+<body>
+  <header class="site-header" id="site-header"></header>
+
+  <main class="page">
+    <h1 class="page-title">My <span class="accent">Vaults</span></h1>
+    <p class="page-sub">
+      Vaults owned by this address. Check in before each deadline to keep
+      them sealed.
+    </p>
+
+    <div style="display:flex; gap:12px; margin-bottom:28px;">
+      <a class="btn primary" href="create.html">+ Create New Vault</a>
+    </div>
+
+    <div id="vault-grid" class="grid-cards"></div>
+
+    <div id="empty-state" class="empty-state" hidden>
+      <svg viewBox="0 0 48 48" fill="none" stroke="#1FAA6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="10" y="20" width="28" height="18" rx="2"/>
+        <path d="M24 26v6"/><circle cx="24" cy="26" r="3"/>
+        <path d="M14 20v-4a10 10 0 0 1 20 0v4"/>
+      </svg>
+      <p>No vaults yet for this address.</p>
+      <a class="btn primary" href="create.html">Create your first vault</a>
+    </div>
+
+    <div class="footer-note"></div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+  <script type="module">
+    import { state, initWallet, onWalletChange, wireHeader, readOnlyContract, signerContract, sendTx, toast, cleanErr, statusName, chipClass, ticker, fmtAmt, fmtDuration, shortAddr } from "./js/app.js";
+    import { renderHeader } from "./js/layout.js";
+
+    renderHeader();
+    wireHeader("dashboard");
+
+    const grid = document.getElementById("vault-grid");
+    const empty = document.getElementById("empty-state");
+    let rendered = false;
+
+    function cardHtml(v, id) {
+      const st = Number(v.status);
+      return `
+        <div class="panel vault-card glow" id="vault-card-${id}">
+          <div class="head">
+            <span class="vault-id">Vault <span class="accent">#${id}</span><br/><small>owned by ${shortAddr(v.owner)}</small></span>
+            <span class="chip ${chipClass(st)}">${statusName(st)}</span>
+          </div>
+          <div>
+            <div class="balance-line">${fmtAmt(v.balance)} <small>BOT secured</small></div>
+          </div>
+          <div>
+            <div class="countdown-label" id="cd-label-${id}">check-in due in</div>
+            <div class="countdown big-countdown" id="cd-${id}">—</div>
+          </div>
+          <div class="card-actions">
+            <button class="btn primary small" data-checkin="${id}">Check In</button>
+            <a class="btn small" href="detail.html?vault=${id}">Details ↗</a>
+          </div>
+        </div>`;
+    }
+
+    async function render() {
+      if (!state.address) {
+        grid.innerHTML = "";
+        empty.hidden = false;
+         empty.querySelector("p").textContent = "Connect a wallet to view your vaults.";
+        return;
+      }
+      const c = readOnlyContract();
+      let ids;
+      try {
+        ids = (await c.getUserVaultIds(state.address)).map(BigInt);
+      } catch {
+        ids = [];
+      }
+      if (!ids.length) {
+        grid.innerHTML = "";
+        if (!rendered) empty.hidden = false;
+        rendered = true;
+        return;
+      }
+      empty.hidden = true;
+      grid.innerHTML = "";
+      for (const id of ids) {
+        try {
+          const v = await c.getVault(id);
+          grid.insertAdjacentHTML("beforeend", cardHtml(v, id));
+          wireCountdown(id, v);
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      grid.querySelectorAll("[data-checkin]").forEach((b) =>
+        b.addEventListener("click", () => checkIn(b.dataset.checkin))
+      );
+    }
+
+    function wireCountdown(id, v) {
+      const el = document.getElementById(`cd-${id}`);
+      const label = document.getElementById(`cd-label-${id}`);
+      if (!el) return;
+      ticker(el, (now) => {
+        const deadline = BigInt(v.lastCheckIn) + BigInt(v.checkInInterval);
+        const remain = Number(deadline - BigInt(now));
+        if (Number(v.status) === 0 && remain > 0) {
+          label.textContent = "check-in due in";
+          el.textContent = fmtDuration(remain);
+          el.className = `countdown ${remain < 86400 ? "warn" : ""}`;
+        } else if (remain <= 0 && Number(v.status) === 0) {
+            label.textContent = "deadline passed";
+            el.textContent = "release can be triggered";
+            el.className = "countdown overdue";
+        } else {
+          label.textContent = "liveness";
+          el.textContent = statusName(v.status);
+          el.className = "countdown";
+        }
+      });
+    }
+
+    async function checkIn(id) {
+      try {
+        const c = await signerContract();
+        await sendTx(`Check-in #${id}`, c.checkIn(id));
+        render();
+      } catch (err) {
+        console.error(cleanErr(err));
+      }
+    }
+
+    initWallet().then(render).catch(console.error);
+    onWalletChange(() => {
+      rendered = false;
+      render();
+    });
+  </script>
+</body>
+</html>

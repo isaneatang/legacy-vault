@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Legacy Vault — on-chain inheritance for BOT Chain</title>
+  <meta name="description" content="A dead man's switch for your crypto. Deposit into an on-chain vault, check in periodically, and your beneficiaries inherit through a graduated, disputable release if you stop." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/theme.css" />
+</head>
+<body>
+  <header class="site-header" id="site-header"></header>
+
+  <main class="page">
+    <!-- hero -->
+    <section class="hero">
+      <h1 class="hero-title">Your keys shouldn't die<br />with <span class="accent">you</span>.</h1>
+      <p class="hero-sub">
+        Legacy Vault is a dead man's switch on BOT Chain. Lock funds in a vault,
+        prove you're alive with a periodic check-in, and if you ever stop,
+        the people you named inherit — gradually, disputably, and without
+        trusting anyone's word but the chain.
+      </p>
+      <div class="hero-cta">
+        <a class="btn primary" href="vaults.html">Open App</a>
+        <a class="btn" href="#how">How it works</a>
+      </div>
+      <p class="hero-meta">Immutable contract · No oracles · No backend · No admin key</p>
+    </section>
+
+    <!-- how it works -->
+    <section id="how">
+      <h2 class="landing-title">How it <span class="accent">works</span></h2>
+
+      <ol class="steps">
+        <li class="panel glow step-card">
+          <span class="step-num">1</span>
+          <h3>Create a vault</h3>
+          <p>Deposit BOT and name beneficiaries with percentage shares. Pick a check-in interval (hours to years), an optional guardian, a dispute window, and how much releases first.</p>
+        </li>
+        <li class="panel glow step-card">
+          <span class="step-num">2</span>
+          <h3>Check in while alive</h3>
+          <p>One transaction resets your deadline. That's the entire maintenance cost — a few cents whenever the timer gets low.</p>
+        </li>
+        <li class="panel glow step-card">
+          <span class="step-num">3</span>
+          <h3>Silence triggers release</h3>
+          <p>Miss your deadline and anyone can trigger the vault — no gatekeeper. A dispute window opens where you or your guardian can cancel with one click if it was a mistake.</p>
+        </li>
+        <li class="panel glow step-card">
+          <span class="step-num">4</span>
+          <h3>First tranche unlocks</h3>
+          <p>After the dispute window lapses, beneficiaries claim their share of the first tranche (e.g. 25%). Every beneficiary pulls their own slice directly from the contract.</p>
+        </li>
+        <li class="panel glow step-card">
+          <span class="step-num">5</span>
+          <h3>Remainder follows</h3>
+          <p>One more full interval of silence and the rest unlocks. But if you reappear at any point before that, a single check-in revives the vault to full control.</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- why trust it -->
+    <section>
+      <h2 class="landing-title">Why you can <span class="accent">trust it</span></h2>
+      <div class="grid-cards">
+        <div class="panel">
+          <h3>Deterministic, not predictive</h3>
+          <p style="color:var(--ash); font-size:14px">No AI guessing if you're dead, no oracle reporting it. The contract only counts time since your last check-in. Simple rules can't hallucinate.</p>
+        </div>
+        <div class="panel">
+          <h3>Graduated, not all-or-nothing</h3>
+          <p style="color:var(--ash); font-size:14px">A first partial tranche plus a second confirmation period means one forgotten deadline never empties your estate. Two strikes before everything moves.</p>
+        </div>
+        <div class="panel">
+          <h3>Disputable by design</h3>
+          <p style="color:var(--ash); font-size:14px">A guardian you choose — or you yourself — can cancel any trigger during the dispute window. False alarms are a one-click fix.</p>
+        </div>
+        <div class="panel">
+          <h3>Pull payments</h3>
+          <p style="color:var(--ash); font-size:14px">Beneficiaries claim their own slices. One broken wallet can never block the others from receiving.</p>
+        </div>
+        <div class="panel">
+          <h3>No admin key</h3>
+          <p style="color:var(--ash); font-size:14px">The contract has no upgrade path and no owner override. What's deployed is what runs — auditable forever on the explorer.</p>
+        </div>
+        <div class="panel">
+          <h3>Your rules, any timescale</h3>
+          <p style="color:var(--ash); font-size:14px">Intervals from minutes (for testing) to years (for real planning). Multiple vaults per address for different beneficiaries.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="final-cta panel glow">
+      <h2 class="landing-title" style="margin-top:0">Set it up once. <span class="accent">Check in occasionally.</span></h2>
+      <p style="color:var(--ash); max-width:60ch">Everything lives on-chain under your control until the day it matters. Start with a small test vault and a short interval to see the whole flow work end-to-end.</p>
+      <div class="hero-cta">
+        <a class="btn primary" href="vaults.html">Open App</a>
+        <a class="btn" href="create.html">Create a vault</a>
+      </div>
+    </section>
+
+    <div class="footer-note"></div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script type="module">
+    import { initWallet } from "./js/app.js";
+    import { renderHeader } from "./js/layout.js";
+
+    renderHeader();
+    initWallet();
+  </script>
+</body>
+</html>

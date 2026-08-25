@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Legacy Vault — Create Vault</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pirata+One&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/theme.css" />
+</head>
+<body>
+  <header class="site-header" id="site-header"></header>
+
+  <main class="page">
+    <h1 class="page-title">Create a <span class="accent">Vault</span></h1>
+    <p class="page-sub">
+      Name your beneficiaries, set the silence threshold, and choose how much
+      releases first. The contract enforces these terms exactly as written —
+      review them carefully, they cannot be changed after creation except by you.
+    </p>
+
+    <div class="panel glow" style="max-width:760px">
+      <form id="create-form" autocomplete="off">
+        <div class="field">
+          <label>Deposit amount (BOT locked in the vault)</label>
+          <input type="text" id="amount" inputmode="decimal" placeholder="10.0" required />
+        </div>
+
+        <div class="section-title" style="margin-top:8px">Beneficiaries</div>
+        <p class="page-sub" style="margin-bottom:14px">Shares must total exactly <b>100%</b>. Shares are stored as basis points on-chain.</p>
+        <div id="benef-rows"></div>
+        <button type="button" class="btn small" id="add-benef">+ Add beneficiary</button>
+        <div class="sum-indicator" id="sum-indicator"></div>
+
+        <div class="form-row" style="margin-top:26px">
+          <div class="field">
+            <label>Guardian — can cancel a triggered release (optional)</label>
+            <input type="text" id="guardian" placeholder="0x… (empty = none)" />
+          </div>
+          <div class="field">
+            <label>First tranche size</label>
+            <div class="slider-wrap">
+              <input type="range" id="t1-slider" min="1" max="99" value="25" />
+              <span class="slider-value" id="t1-value">25%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label>If you don't check in for…</label>            <div class="inline-group">
+              <input type="number" id="interval-num" min="1" value="30" />
+              <select id="interval-unit"></select>
+            </div>
+          </div>
+          <div class="field">
+            <label>Dispute window after trigger (time for you or your guardian to cancel)</label>
+            <div class="inline-group">
+              <input type="number" id="dispute-num" min="0" value="7" />
+              <select id="dispute-unit"></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-box" id="summary" style="margin:26px 0"></div>
+        <button type="submit" class="btn primary wide" id="submit-btn">Create Vault</button>
+        <p style="color:var(--ash-dim); font-size:12.5px; margin:12px 0 0">
+          Minimum check-in interval is 60 seconds. Once deployed, this vault cannot be modified by anyone but you.
+        </p>
+      </form>
+    </div>
+
+    <div class="footer-note"></div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+  <script type="module">
+    import { initWallet, wireHeader, state, signerContract, sendTx, toast, cleanErr, UNIT_SECONDS } from "./js/app.js";
+    import { renderHeader } from "./js/layout.js";
+    import { fmtDurationLong } from "./js/helpers.js";
+
+    renderHeader();
+    wireHeader("create");
+
+    const rowsEl = document.getElementById("benef-rows");
+    const sumEl = document.getElementById("sum-indicator");
+
+    for (const sel of ["interval-unit", "dispute-unit"]) {
+      const el = document.getElementById(sel);
+      for (const [name, secs] of Object.entries(UNIT_SECONDS)) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        if ((sel === "interval-unit" && name === "days") || (sel === "dispute-unit" && name === "weeks")) opt.selected = true;
+        el.appendChild(opt);
+      }
+    }
+
+    function addBenefRow(addr = "", pct = "") {
+      const row = document.createElement("div");
+      row.className = "benef-row";
+      row.innerHTML = `
+        <input type="text" class="benef-addr" placeholder="Beneficiary address 0x…" value="${addr}" />
+        <input type="number" class="benef-pct" placeholder="%" min="0" max="100" step="0.01" value="${pct}" />
+        <button type="button" class="btn danger small benef-remove">✕</button>`;
+      row.querySelector(".benef-pct").addEventListener("input", updateSummary);
+      row.querySelector(".benef-addr").addEventListener("input", () => validateAddr(row));
+      row.querySelector(".benef-remove").addEventListener("click", () => {
+        row.remove();
+        updateSummary();
+      });
+      rowsEl.appendChild(row);
+      return row;
+    }
+    document.getElementById("add-benef").addEventListener("click", () => addBenefRow());
+    addBenefRow();
+    addBenefRow();
+
+    function readShares() {
+      let sum = 0;
+      let validAddrs = true;
+      rowsEl.querySelectorAll(".benef-row").forEach((row) => {
+        sum += parseFloat(row.querySelector(".benef-pct").value) || 0;
+        const a = row.querySelector(".benef-addr").value.trim();
+        if (a && !/^0x[0-9a-fA-F]{40}$/.test(a)) validAddrs = false;
+      });
+      return { sum, validAddrs };
+    }
+
+    function validateAddr(row) {
+      const a = row.querySelector(".benef-addr").value.trim();
+      row.querySelector(".benef-addr").classList.toggle(
+        "invalid",
+        !!a && !/^0x[0-9a-fA-F]{40}$/.test(a)
+      );
+    }
+
+    const slider = document.getElementById("t1-slider");
+    slider.addEventListener("input", () => {
+      document.getElementById("t1-value").textContent = `${slider.value}%`;
+      updateSummary();
+    });
+    ["amount", "interval-num", "interval-unit", "dispute-num", "dispute-unit"].forEach((id) =>
+      document.getElementById(id).addEventListener("input", updateSummary)
+    );
+
+    function secondsOf(numId, unitId) {
+      const n = parseFloat(document.getElementById(numId).value);
+      if (!n || n <= 0) return 0;
+      return Math.round(n * UNIT_SECONDS[document.getElementById(unitId).value]);
+    }
+
+    function updateSummary() {
+      const { sum } = readShares();
+      const ok = Math.abs(sum - 100) < 1e-9;
+      sumEl.innerHTML = ok
+        ? `<span class="sum-ok">✓ shares total ${trim(sum)}%</span>`
+        : `<span class="${sum > 100 ? "sum-bad" : ""}">${trim(sum)}% of 100% allocated ${sum > 100 ? "— over-committed" : ""}</span>`;
+      sumEl.className = `sum-indicator ${ok ? "sum-ok" : "sum-bad"}`;
+
+      const amt = parseFloat(document.getElementById("amount").value);
+      const intervalSec = secondsOf("interval-num", "interval-unit");
+      const disputeSec = secondsOf("dispute-num", "dispute-unit");
+      const t1 = slider.value;
+      const count = rowsEl.querySelectorAll(".benef-row").length;
+
+      document.getElementById("summary").innerHTML =
+        `If you don't check in for <span class="num">${intervalSec ? fmtDurationLong(intervalSec) : "—"}</span>, ` +
+        `anyone can trigger the release. After a dispute window of <span class="num">${disputeSec ? fmtDurationLong(disputeSec) : "—"}</span>, ` +
+        `your <b>${count} beneficiary${count === 1 ? "" : "ies"}</b> can claim <span class="num">${t1}%</span> of the vault. ` +
+        `After another full interval of silence, the remaining <span class="num">${100 - t1}%</span> unlocks. A check-in from you at any point before that revives the vault.` +
+        (amt > 0 ? ` Deposit: <b><span class="num">${amt}</span> BOT</b>.` : "");
+    }
+    function trim(n) {
+      return String(Math.round(n * 100) / 100);
+    }
+    updateSummary();
+
+    document.getElementById("create-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      if (!state.address) return toast("Connect your wallet first.", true);
+
+      const { sum } = readShares();
+      if (!(Math.abs(sum - 100) < 1e-9)) return toast("Beneficiary shares must total exactly 100%.", true);
+
+      const wallets = [];
+      const pcts = [];
+      for (const row of rowsEl.querySelectorAll(".benef-row")) {
+        const a = row.querySelector(".benef-addr").value.trim();
+        const p = parseFloat(row.querySelector(".benef-pct").value);
+        if (!/^0x[0-9a-fA-F]{40}$/.test(a)) return toast(`Invalid beneficiary address: ${a || "(empty)"}`, true);
+        if (!p || p <= 0) return toast("Every beneficiary needs a share above zero.", true);
+        wallets.push(a);
+        pcts.push(p);
+      }
+
+      const amount = document.getElementById("amount").value;
+      if (!(parseFloat(amount) > 0)) return toast("Deposit must be greater than zero.", true);
+
+      const intervalSec = secondsOf("interval-num", "interval-unit");
+      const disputeSec = secondsOf("dispute-num", "dispute-unit");
+      if (intervalSec < 60) return toast("Check-in interval must be at least 60 seconds.", true);
+
+      let guardian = document.getElementById("guardian").value.trim();
+      if (guardian && !/^0x[0-9a-fA-F]{40}$/.test(guardian)) return toast("Guardian address is invalid.", true);
+      if (!guardian) guardian = ethers.ZeroAddress;
+
+      const bps = pcts.map((p) => BigInt(Math.round(p * 100)));
+
+      try {
+        const c = await signerContract();
+        const receipt = await sendTx(
+          "Vault creation",
+          c.createVault(wallets, bps, guardian, BigInt(intervalSec), BigInt(disputeSec), Number(slider.value), {
+            value: ethers.parseEther(amount),
+          })
+        );
+        const ev = receipt.logs
+          .map((l) => {
+            try { return c.interface.parseLog(l); } catch { return null; }
+          })
+          .find((p) => p?.name === "VaultCreated");
+        const vaultId = ev?.args?.vaultId;
+        toast(vaultId ? `Vault #${vaultId} created.` : "Vault created.", false, receipt.hash);
+        setTimeout(() => (location.href = vaultId ? `detail.html?vault=${vaultId}` : "vaults.html"), 900);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    initWallet();
+  </script>
+</body>
+</html>
