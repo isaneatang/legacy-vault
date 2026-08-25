@@ -17,7 +17,7 @@ window.LV_CONFIG = {
   // Optional: WalletConnect/Reown relay project id (free at https://cloud.reown.com).
   // When set, a "WalletConnect" option appears in the connect modal (QR + any
   // mobile wallet, even where deep links fail). Leave empty to disable.
-  WC_PROJECT_ID: "",
+  WC_PROJECT_ID: "caeeec4110f639be2b71ce491d23ba98",
 
   CHAINS: {
     "31337": { name: "Hardhat Local", explorer: "" },
