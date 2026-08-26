@@ -131,25 +131,20 @@ wallet, wait another interval, claim final. The whole arc fits in ~5 minutes.
 | `claims.html` | **Claimable Assets** — every vault where the connected wallet is a beneficiary, with exact unlock countdowns and estimated payout amounts per claim. |
 | `watch.html?vault=N` | Public read-only spectator view — no wallet required. |
 
-### Wallet connection (built-in, zero dependencies)
+### Wallet connection
 
-The wallet layer is a small in-repo module (`js/app.js`) instead of a hosted
-SDK — deliberate, for a project meant to run unattended for years:
-
-- **EIP-6963 multi-wallet discovery**: MetaMask, Rabby, Coinbase Wallet, OKX,
-  Trust and any other conforming extension are listed by name and icon; falls
-  back to a generic injected EIP-1193 provider.
-- **Mobile support**: deep links open the site inside each wallet's built-in
-  browser (no relay server or QR round-trip needed).
-- **WalletConnect (optional, via Reown)**: set a free `WC_PROJECT_ID` from
-  cloud.reown.com in `frontend/js/config.js` and the modal gains a
-  WalletConnect option (QR + any mobile wallet) as a fallback for browsers
-  where deep links don't launch. The module lazy-loads only when used.
-- **Account menu**: click the connected chip for the full address, one-click
-  copy, live balance, explorer link — and a real disconnect.
+- **Reown AppKit modal** (`@reown/appkit`): one polished default modal for
+  everything — injected extensions (MetaMask, Rabby, Coinbase, OKX, Trust…),
+  QR-based WalletConnect for mobile wallets, and proper deep-link handling on
+  Android/iOS browsers. Loaded lazily from CDN; needs `WC_PROJECT_ID`
+  (free from cloud.reown.com), injected via build-time env.
+- **Zero-config fallback**: without a project id, the app falls back to a
+  plain injected-wallet connection (desktop extensions only).
+- **Account menu**: click the connected chip for the full address, copy,
+  live balance, explorer link, network switcher and real disconnect.
 - **Automatic network handling**: on connect (and before every write) the app
-  tries `wallet_switchEthereumChain`, and if the wallet doesn't know BOT Chain
-  it transparently calls `wallet_addEthereumChain` with the correct parameters.
+  tries `wallet_switchEthereumChain`, transparently adding BOT Chain if the
+  wallet doesn't know it.
 
 Theme: "grim vault" — tomb-dark near-black base, spectral-green glowing accents,
 bone text, ember-red reserved for triggered/danger states, blackletter display

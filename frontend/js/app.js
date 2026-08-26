@@ -35,7 +35,6 @@ export const state = {
   balance: null, // wei as BigInt
   walletName: null, // active provider label
   provider: null, // raw EIP-1193 provider (active)
-  wcProvider: null, // WalletConnect transport when in use
 };
 
 const listeners = [];
@@ -314,98 +313,125 @@ function fallbackWallet() {
   };
 }
 
-function listWallets() {
-  const found = [...wallets.values()];
-  if (!found.length) {
-    const fb = fallbackWallet();
-    if (fb) found.push(fb);
-  }
-  return found;
-}
-
 /* ------------------------------------------------------------------ */
-/* WalletConnect (Reown) — secondary transport                         */
+/* Reown AppKit — the connect modal (default UI, all wallets)          */
 /* ------------------------------------------------------------------ */
 
-const WC_ICON = `<svg width="26" height="26" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#3B99FC"/><path d="M9.5 12.6c3.6-3.5 9.4-3.5 13 0l.4.4c.2.2.2.4 0 .6l-1.5 1.4c-.1.1-.3.1-.4 0l-.6-.6c-2.5-2.4-6.5-2.4-9 0l-.6.6c-.1.1-.3.1-.4 0L8.3 13.6c-.2-.2-.2-.4 0-.6l.4-.4z" fill="#fff"/><path d="M16 15.4l2 1.9c.1.1.1.3 0 .4l-1.7 1.7c-.2.2-.4.2-.6 0L16 19.1l-1.7-1.7c-.1-.1-.1-.3 0-.4l1.7-1.9z" fill="#fff"/></svg>`;
+let appKit = null;
+let appKitPromise = null;
 
-let wcConnecting = false;
-
-/* Lazy loader with caching. Prewarmed as soon as the connect modal opens so
-   clicking WalletConnect doesn't wait on a cold CDN download. */
-let wcModulePromise = null;
-function loadWcModule() {
-  if (!wcModulePromise) {
-    wcModulePromise = import(
-      "https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.18.0/+esm"
-    ).then((m) => m.default ?? m.EthereumProvider);
-    wcModulePromise.catch(() => { wcModulePromise = null; }); // allow retry
-  }
-  return wcModulePromise;
+/** Chain objects in the shape AppKit expects, built from config. */
+function appkitChains() {
+  const ids = supportedChainIds().length ? supportedChainIds() : Object.keys(CFG.CHAINS);
+  const sym = CFG.TOKEN_SYMBOL || "BOT";
+  return ids
+    .map((id) => {
+      const c = CFG.CHAINS[id];
+      if (!c?.rpc) return null;
+      return {
+        id: Number(id),
+        name: c.name,
+        nativeCurrency: { name: sym, symbol: sym, decimals: 18 },
+        rpcUrls: { default: { http: [c.rpc] } },
+        ...(c.explorer ? { blockExplorers: { default: { name: "Explorer", url: c.explorer } } } : {}),
+      };
+    })
+    .filter(Boolean);
 }
 
-async function buildWcProvider(projectId) {
-  const EthereumProvider = await loadWcModule();
-  const hosted = supportedChainIds().map(Number);
-  const chains = hosted.length ? hosted : [Number(Object.keys(CFG.CHAINS)[0])];
-  const rpcMap = {};
-  for (const [id, c] of Object.entries(CFG.CHAINS)) if (c.rpc) rpcMap[id] = c.rpc;
-  return EthereumProvider.init({
-    projectId,
-    chains,
-    optionalChains: [],
-    rpcMap,
-    showQrModal: true,
-    metadata: {
-      name: "Legacy Vault",
-      description: "On-chain inheritance for BOT Chain",
-      url: location.origin,
-      icons: [],
-    },
+function loadAppKitModules() {
+  return Promise.all([
+    import("https://cdn.jsdelivr.net/npm/@reown/appkit@1/+esm"),
+    import("https://cdn.jsdelivr.net/npm/@reown/appkit-adapter-ethers@1/+esm"),
+  ]);
+}
+
+async function ensureAppKit() {
+  if (!wcProjectId()) return null;
+  if (!appKitPromise) {
+    appKitPromise = (async () => {
+      const [{ createAppKit }, { EthersAdapter }] = await loadAppKitModules();
+      const networks = appkitChains();
+      const ak = createAppKit({
+        adapters: [new EthersAdapter()],
+        networks,
+        projectId: wcProjectId(),
+        themeMode: "dark",
+        metadata: {
+          name: "Legacy Vault",
+          description: "On-chain inheritance / dead man's switch for BOT Chain",
+          url: location.origin,
+          icons: [],
+        },
+        features: { analytics: false },
+      });
+      appKit = ak;
+      return ak;
+    })();
+    appKitPromise.catch(() => { appKitPromise = null; }); // allow retry after a failure
+  }
+  return appKitPromise;
+}
+
+/** Resolves once AppKit reports a connected address (or rejects on close). */
+function waitConnected(ak, timeoutMs = 180000) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    let unsubState = null;
+    const finish = (fn, val) => {
+      if (done) return;
+      done = true;
+      clearInterval(poll);
+      try { unsubState?.(); } catch {}
+      fn(val);
+    };
+    const check = async () => {
+      try { const a = await ak.getAddress?.(); if (a) finish(resolve, a); } catch {}
+    };
+    const poll = setInterval(check, 500);
+    // Reject shortly after the user closes the modal without connecting.
+    try {
+      unsubState = ak.subscribeState?.((s) => {
+        if (s?.open === false) setTimeout(() => { check(); if (!done) finish(reject, new Error("closed")); }, 800);
+      });
+    } catch {}
+    setTimeout(() => finish(reject, new Error("Connection timed out")), timeoutMs);
+    check();
   });
 }
 
-async function connectWalletConnect() {
-  const projectId = wcProjectId();
-  if (!projectId) {
-    toast("WalletConnect is disabled. Set WC_PROJECT_ID.", true);
-    return;
-  }
-  if (wcConnecting) return;
-  wcConnecting = true;
-  closeModal();
-  toast("Opening WalletConnect…");
+async function connectViaReown() {
+  const ak = await ensureAppKit();
+  if (!ak) return;
+  toast("Opening wallet options…");
+  ak.open();
   try {
-    const wc = await buildWcProvider(projectId);
-
-    // Resume an existing session silently, otherwise show the QR modal.
-    await wc.connect();
-
-    state.wcProvider = wc;
+    await waitConnected(ak);
     await activate({
-      info: { uuid: "wc", name: "WalletConnect", icon: null, rdns: "wc" },
-      provider: wc,
+      info: { uuid: "reown", name: "Wallet", icon: null, rdns: "reown" },
+      provider: ak.getWalletProvider(),
     });
-    toast("Connected via WalletConnect");
+    toast("Connected");
+    ensureChain().catch(() => {});
   } catch (err) {
     const msg = String(err?.message ?? err);
-    if (!/rejected|closed|declined/i.test(msg)) toast(`WalletConnect failed: ${cleanErr(err)}`, true);
-  } finally {
-    wcConnecting = false;
+    if (!/rejected|closed|declined/i.test(msg)) toast(`Connect failed: ${cleanErr(err)}`, true);
   }
 }
 
-/** If the user last connected via WalletConnect, try to resume that session
- *  before anything else so reloads keep them logged in. */
-async function resumeWalletConnect() {
-  if (localStorage.getItem(LS_WALLET) !== "wc") return false;
-  const projectId = wcProjectId();
-  if (!projectId) return false;
+/** If the last session used Reown AppKit, restore it silently so reloads
+ *  keep the user connected (AppKit persists its own sessions). */
+async function resumeReown() {
+  if (localStorage.getItem(LS_WALLET) !== "reown") return false;
   try {
-    const wc = await buildWcProvider(projectId);
-    if (!wc.session) return false;
-    state.wcProvider = wc;
-    await activate({ info: { uuid: "wc", name: "WalletConnect", icon: null, rdns: "wc" }, provider: wc }, { silent: true });
+    const ak = await ensureAppKit();
+    if (!ak) return false;
+    const addr = await ak.getAddress?.();
+    if (!addr) return false;
+    await activate(
+      { info: { uuid: "reown", name: "Wallet", icon: null, rdns: "reown" }, provider: ak.getWalletProvider() },
+      { silent: true }
+    );
     return !!state.address;
   } catch {
     return false;
@@ -487,9 +513,13 @@ export async function initWallet() {
 
   const savedRdns = localStorage.getItem(LS_WALLET);
 
-  if (savedRdns === "wc") {
-    const resumed = await resumeWalletConnect();
-    if (resumed) return;
+  if (savedRdns === "reown") {
+    const resumed = await resumeReown();
+    if (resumed) {
+      if (!isSupportedChain(state.chainId)) ensureChain().catch(() => {});
+      emit();
+      return;
+    }
   }
 
   const wantsAuto = localStorage.getItem(LS_CONNECTED) === "1";
@@ -515,31 +545,41 @@ export async function initWallet() {
   emit();
 }
 
-export function connect(rdns = null) {
-  if (rdns) {
-    const detail = wallets.get(rdns);
-    if (!detail) {
-      toast("That wallet is no longer available.", true);
-      return Promise.resolve();
-    }
-    return activate(detail)
-      .then(() => {
-        toast(`Connected via ${state.walletName}`);
-        return ensureChain().catch(() => {});
-      })
-      .catch((err) => {
-        if (err?.code !== 4001) toast(`Connection failed: ${cleanErr(err)}`, true);
-      });
+export function connect() {
+  // Primary path: Reown AppKit modal (QR, deep links, injected wallets —
+  // its default UI handles mobile redirect flows far better than a
+  // hand-rolled list). Fallback when no project id is configured: plain
+  // injected-wallet request so zero-config local dev still works.
+  if (wcProjectId()) {
+    return ensureAppKit()
+      .then((ak) => (ak ? connectViaReown() : Promise.resolve()))
+      .catch((err) => toast(`Connect failed: ${cleanErr(err)}`, true));
   }
-  openConnectModal();
-  return Promise.resolve();
+  const detail = fallbackWallet();
+  if (!detail) {
+    toast("No wallet detected. Install MetaMask or open this site in a wallet app.", true);
+    return Promise.resolve();
+  }
+  return activate(detail)
+    .then(() => {
+      toast(`Connected via ${state.walletName}`);
+      return ensureChain().catch(() => {});
+    })
+    .catch((err) => {
+      if (err?.code !== 4001) toast(`Connection failed: ${cleanErr(err)}`, true);
+    });
 }
 
 export async function disconnect({ quiet = false } = {}) {
+  const viaReown = localStorage.getItem(LS_WALLET) === "reown";
   localStorage.removeItem(LS_CONNECTED);
   localStorage.removeItem(LS_WALLET);
   try {
-    // Terminate a WalletConnect session if that's the active transport.
+    // Terminate AppKit's session (covers WalletConnect relay + injected).
+    if (viaReown && appKit) await appKit.disconnect();
+  } catch {}
+  try {
+    // Terminate any lingering WalletConnect session on the raw provider.
     if (state.provider?.session) await state.provider.disconnect();
   } catch {}
   try {
@@ -552,7 +592,6 @@ export async function disconnect({ quiet = false } = {}) {
   state.address = null;
   state.balance = null;
   state.walletName = null;
-  state.wcProvider = null;
   state.readProvider = null;
   if (!quiet) emit();
 }
@@ -583,130 +622,6 @@ function emit() {
     }
   }, 50);
 }
-
-/* ------------------------------------------------------------------ */
-/* Connect modal                                                       */
-/* ------------------------------------------------------------------ */
-
-function currentPathUrl() {
-  return `${location.host}${location.pathname}${location.search}`;
-}
-
-/** Official universal links that open this page inside each wallet's browser.
- *  Navigated in the SAME tab so the redirect chain to the app can complete. */
-function deepLinks() {
-  const enc = encodeURIComponent(`https://${currentPathUrl()}`);
-  return [
-    { name: "MetaMask", href: `https://metamask.app.link/dapp/${currentPathUrl()}` },
-    { name: "Trust Wallet", href: `https://link.trustwallet.com/open_url?url=${enc}` },
-    { name: "Coinbase Wallet", href: `https://go.cb-w.com/dapp?cb_url=${enc}` },
-    { name: "OKX Wallet", href: `https://www.okx.com/download?deeplink=${enc}` },
-  ];
-}
-
-/** Heuristic: are we already inside a wallet's built-in browser? */
-function inWalletBrowser() {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent;
-  return /MetaMaskMobile|Trust|CoinbaseWallet|OKX|OKApp|Rabby/i.test(ua) && !!window.ethereum;
-}
-
-const GENERIC_ICON = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1faa6e" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M9 10.5a3 3 0 1 1 4.2 2.75c-.75.33-1.2.95-1.2 1.75v.5"/><circle cx="12" cy="18" r=".6" fill="#1faa6e"/></svg>`;
-
-export function openConnectModal() {
-  closeModal();
-  // Prewarm the WalletConnect bundle in the background (no-ops when disabled).
-  if (wcProjectId()) loadWcModule().catch(() => {});
-
-  const backdrop = document.createElement("div");
-  backdrop.className = "modal-backdrop";
-  backdrop.id = "connect-modal";
-
-  const options = listWallets();
-  const inApp = inWalletBrowser();
-
-  const installedRows = options.length
-    ? options
-        .map(
-          (w) => `
-      <button class="wallet-option" data-rdns="${w.info.rdns}">
-        ${w.info.icon ? `<img src="${w.info.icon}" alt="" />` : GENERIC_ICON}
-        <span>${w.info.name}</span>
-        <span class="chev">→</span>
-      </button>`
-        )
-        .join("")
-    : `<p class="modal-note">None detected. On desktop, install a wallet extension (MetaMask, Rabby, OKX…). On a phone, use the links below.</p>`;
-
-  backdrop.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Connect wallet">
-      <div class="modal-head">
-        <b>Connect a wallet</b>
-        <button class="modal-close" aria-label="Close">×</button>
-      </div>
-
-      <span class="modal-label">On this device</span>
-      <div class="wallet-list">${installedRows}</div>
-      ${inApp ? `<p class="modal-note ok">You're browsing inside a wallet app. Use an option above.</p>` : ""}
-
-      <div class="modal-section">
-        <span class="modal-label">Any other wallet</span>
-        <div class="wallet-list">
-          <button class="wallet-option" id="wc-option">
-            ${WC_ICON}<span>WalletConnect</span><span class="chev">→</span>
-          </button>
-        </div>
-        <p class="modal-note">${
-          wcProjectId()
-            ? "Scan the QR with any mobile wallet, or continue in your wallet app."
-            : "Currently disabled. Add a free WC_PROJECT_ID from cloud.reown.com."
-        }</p>
-      </div>
-
-      <div class="modal-section">
-        <span class="modal-label">Open in a mobile wallet</span>
-        <div class="wallet-list">
-          ${deepLinks()
-            .map(
-              (d) =>
-                `<a class="wallet-option" href="${d.href}">
-                   ${GENERIC_ICON}<span>${d.name}</span><span class="chev">↗</span>
-                 </a>`
-            )
-            .join("")}
-        </div>
-        <p class="modal-note">Opens this page inside the wallet's own browser. Once you're in, your wallet will be listed under "On this device".</p>
-      </div>
-      <p class="modal-note">
-        By connecting you agree that all actions are final and on-chain.
-      </p>
-    </div>`;
-
-  backdrop.addEventListener("click", (e) => {
-    if (e.target === backdrop) closeModal();
-  });
-  backdrop.querySelector(".modal-close").addEventListener("click", closeModal);
-  const wcBtn = backdrop.querySelector("#wc-option");
-  if (wcBtn) wcBtn.addEventListener("click", () => {
-    closeModal();
-    connectWalletConnect();
-  });
-  backdrop.querySelectorAll("[data-rdns]").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      closeModal();
-      connect(btn.dataset.rdns);
-    })
-  );
-  const esc = (e) => e.key === "Escape" && closeModal();
-  document.addEventListener("keydown", esc, { once: true });
-
-  document.body.appendChild(backdrop);
-}
-
-export function closeModal() {
-  document.getElementById("connect-modal")?.remove();
-}
-
 /* ------------------------------------------------------------------ */
 /* Header wiring                                                       */
 /* ------------------------------------------------------------------ */
