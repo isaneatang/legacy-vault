@@ -143,9 +143,42 @@ function defaultReadRpc() {
   return anyRpc?.rpc ?? null;
 }
 
+/* Some chain RPCs (e.g. rpc.bohr.life) send no CORS headers, which silently
+ * kills every browser-direct read for logged-out visitors. When a same-origin
+ * proxy is configured (see /api/* rewrites in vercel.json), prefer it; fall
+ * back to the absolute RPC when the proxy isn't available (local dev). */
+let readRpcPromise = null;
+function resolveReadRpc() {
+  if (!readRpcPromise) {
+    readRpcPromise = (async () => {
+      const abs = defaultReadRpc();
+      if (!abs) return null;
+      const proxy = (CFG.RPC_PROXY ?? {})[abs];
+      if (!proxy || location.protocol === "file:") return abs;
+      try {
+        // ethers needs an absolute URL even though the proxy is same-origin.
+        const url = new URL(proxy, location.href).toString();
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
+        });
+        const j = await r.json();
+        if (j && j.result) return url;
+      } catch {}
+      return abs;
+    })();
+    readRpcPromise.catch(() => {});
+  }
+  return readRpcPromise;
+}
+
 export function vaultAddress() {
+  const byChain = CFG.VAULT_ADDRESS_BY_CHAIN ?? {};
   const key = String(state.chainId ?? "");
-  return (CFG.VAULT_ADDRESS_BY_CHAIN && CFG.VAULT_ADDRESS_BY_CHAIN[key]) || CFG.VAULT_ADDRESS;
+  // Unknown/wrong chain (e.g. logged out): fall back to the first configured
+  // hosted chain rather than a stale default address.
+  return byChain[key] || byChain[supportedChainIds()[0] ?? ""] || CFG.VAULT_ADDRESS;
 }
 
 export function contractFor(signerOrProvider) {
@@ -161,7 +194,7 @@ export function readOnlyContract() {
     return contractFor(new ethers.BrowserProvider(window.ethereum, "any"));
   }
   if (!state.readProvider) {
-    const url = defaultReadRpc();
+    const url = state.readRpcUrl ?? defaultReadRpc();
     if (!url) throw new Error("No wallet connected and no public RPC configured.");
     state.readProvider = new ethers.JsonRpcProvider(url);
   }
@@ -192,7 +225,7 @@ function anyReadProvider() {
     return new ethers.BrowserProvider(window.ethereum, "any");
   }
   if (!state.readProvider) {
-    const url = defaultReadRpc();
+    const url = state.readRpcUrl ?? defaultReadRpc();
     state.readProvider = url ? new ethers.JsonRpcProvider(url) : null;
   }
   return state.readProvider;
@@ -445,6 +478,9 @@ function patchBalanceUI() {
 }
 
 export async function initWallet() {
+  // Resolve the read endpoint (same-origin proxy vs absolute RPC) before any
+  // page render, so logged-out visitors don't fire reads at a CORS-dead RPC.
+  await resolveReadRpc().then((url) => { state.readRpcUrl = url; }).catch(() => {});
   requestProviders();
   // give announcements a tick to arrive
   await new Promise((r) => setTimeout(r, 60));
@@ -807,7 +843,7 @@ export function ticker(el, renderFn) {
     try {
       renderFn(Math.floor(Date.now() / 1000));
     } catch (err) {
-      console.warn("ticker error:", err);
+      console.warn("ticker error:", err?.stack ?? err?.message ?? err);
     }
   };
   const handle = setInterval(tick, 1000);

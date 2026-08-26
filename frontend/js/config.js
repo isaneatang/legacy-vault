@@ -26,6 +26,15 @@ window.LV_CONFIG = {
     "677": { name: "BOT Chain", rpc: "https://rpc.botchain.ai", explorer: "https://scan.botchain.ai" },
   },
 
+  // Same-origin proxies for chain RPCs (see /api/* rewrites in vercel.json).
+  // The RPCs send no CORS headers, so browser-direct reads fail for
+  // logged-out visitors; the proxy makes them same-origin. Local dev without
+  // a proxy automatically falls back to the absolute URLs.
+  RPC_PROXY: {
+    "https://rpc.bohr.life": "/api/rpc-testnet",
+    "https://rpc.botchain.ai": "/api/rpc-mainnet",
+  },
+
   TOKEN_SYMBOL: "BOT",
 
   // ERC-20 assets a vault can be denominated in, keyed by chainId
